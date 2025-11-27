@@ -1,0 +1,142 @@
+// INSTRUÇÕES PARA IMPLEMENTAR O FLUXO DE BUSCA DE CLIENTE
+
+## PASSO 1: Copiar o Modal
+Abra CLIENT_MODAL_COMPONENT.txt e copie todo o código.
+Cole ANTES da linha que começa com "export const RegisterCashbackPage"
+
+## PASSO 2: Modificar RegisterCashbackPage - Adicionar Estados
+
+Logo após a linha:
+    const formRef = useRef<HTMLFormElement>(null);
+
+Adicionar:
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searching, setSearching] = useState(false);
+    const [foundClient, setFoundClient] = useState<Client | null>(null);
+    const [searchPerformed, setSearchPerformed] = useState(false);
+    const [showQuickRegisterModal, setShowQuickRegisterModal] = useState(false);
+
+## PASSO 3: Adicionar Funções de Busca e Cadastro
+
+Logo ANTES da função handleSubmit, adicionar:
+
+    const handleSearchClient = async () => {
+        if (!searchTerm.trim() || !user.companyId) return;
+        setSearching(true);
+        setSearchPerformed(true);
+        try {
+            const result = await api.findClientByPhoneOrCpf(user.companyId, searchTerm.trim());
+            setFoundClient(result ? result.client : null);
+        } catch (error) {
+            console.error("Erro ao buscar cliente:", error);
+            setFoundClient(null);
+        } finally {
+            setSearching(false);
+        }
+    };
+
+    const handleClientRegistered = (client: Client) => {
+        setFoundClient(client);
+        setShowQuickRegisterModal(false);
+        setSearchPerformed(true);
+    };
+
+## PASSO 4: Modificar handleSubmit
+
+SUBSTITUIR a  primeira linha:
+    if (!user.companyId) {
+
+POR:
+    if (!user.companyId || !foundClient) {
+
+REMOVER as linhas que pegam dados do form (name, phone, email) e SUBSTITUIR o api.addTransaction por:
+
+    await api.addTransaction(user.companyId, {
+        clientId: foundClient.id,
+        customerName: foundClient.name,
+        product: data.product as string,
+        purchaseValue: purchaseValue,
+        cashbackPercentage: cashbackPercentage,
+        cashbackValue: cashbackValue,
+        purchaseDate: today.toISOString().split('T')[0],
+        cashbackExpirationDate: expirationDate.toISOString().split('T')[0],
+        status: 'Disponível',
+        sellerId: user.id,
+        sellerName: user.name,
+    });
+
+E no webhook, usar foundClient.name, foundClient.phone, foundClient.email, foundClient.cpf
+
+Adicionar no final (antes de setSuccess):
+    setFoundClient(null);
+    setSearchTerm('');
+    setSearchPerformed(false);
+
+## PASSO 5: Adicionar UI de Busca
+
+Logo APÓS {success && (...)} e ANTES de <form>, adicionar:
+
+    <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <h3 className="font-semibold mb-3">1. Buscar Cliente</h3>
+        <div className="flex gap-2">
+            <Input
+                placeholder="Digite CPF ou Telefone"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearchClient()}
+            />
+            <Button onClick={handleSearchClient} disabled={searching || !searchTerm.trim()} className="whitespace-nowrap">
+                {searching ? 'Buscando...' : 'Buscar'}
+            </Button>
+        </div>
+
+        {searchPerformed && foundClient && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm font-semibold text-green-800 mb-2">✓ Cliente Encontrado</p>
+                <div className="text-sm text-gray-700 space-y-1">
+                    <p><span className="font-medium">Nome:</span> {foundClient.name}</p>
+                    <p><span className="font-medium">CPF:</span> {foundClient.cpf}</p>
+                    <p><span className="font-medium">Telefone:</span> {foundClient.phone}</p>
+                </div>
+            </div>
+        )}
+
+        {searchPerformed && !foundClient && !searching && (
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm font-semibold text-yellow-800 mb-2">⚠ Cliente não cadastrado</p>
+                <Button onClick={() => setShowQuickRegisterModal(true)} className="mt-2 w-full bg-yellow-600 hover:bg-yellow-700">
+                    <Icons.PlusCircle className="w-4 h-4 mr-2" />
+                    Cadastrar Novo Cliente
+                </Button>
+            </div>
+        )}
+    </div>
+
+## PASSO 6: Modificar Form
+
+Mudar o <form> para ter:
+    <form ref={formRef} className="space-y-4" onSubmit={handleSubmit}>
+        <h3 className="font-semibold">2. Dados da Compra</h3>
+
+REMOVER os campos: name, phone, email (só deixar: product, value, cashbackPercentage)
+
+ADICIONAR disabled={!foundClient} em TODOS os inputs
+
+Mudar o botão submit para:
+    <Button type="submit" className="w-full" disabled={loading || !foundClient}>
+        {loading ? 'Registrando...' : foundClient ? 'Gerar Cashback' : 'Busque um cliente primeiro'}
+    </Button>
+
+## PASSO 7: Adicionar Modal no Final
+
+Logo ANTES de </main>, adicionar:
+
+    <ClientQuickRegisterModal
+        isOpen={showQuickRegisterModal}
+        onClose={() => setShowQuickRegisterModal(false)}
+        onClientRegistered={handleClientRegistered}
+        companyId={user.companyId || ''}
+        prefilledCpf={searchTerm}
+    />
+
+PRONTO! Salve e teste.

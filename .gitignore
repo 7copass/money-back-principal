@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production
+build/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Supabase
+.supabase/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+.cache/
+
+# Temporary instruction files (not needed in repo)
+IMPLEMENTATION_INSTRUCTIONS.txt
+CLIENT_MODAL_COMPONENT.txt
+PAGES_HEADER.txt
+*.backup
+pages.tsx.backup
+pages_new.tsx
+add_modal.py
