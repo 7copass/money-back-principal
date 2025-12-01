@@ -151,6 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userRole, onNavigate, onLogout
           { label: 'Registrar Cashback', icon: Icons.PlusCircle, page: 'registrar' },
           { label: 'Resgatar Cashback', icon: Icons.Redeem, page: 'resgatar' },
           { label: 'Clientes', icon: Icons.Users, page: 'clientes' },
+          { label: 'Produtos', icon: Icons.Gift, page: 'produtos' },
           { label: 'Campanhas', icon: Icons.Gift, page: 'campanhas' },
           { label: 'Ranking', icon: Icons.Trophy, page: 'ranking' },
           { label: 'Permissões', icon: Icons.Settings, page: 'permissoes' },

@@ -375,6 +375,24 @@ export const api = {
         const bonusAVencer = aVencer.reduce((sum, t) => sum + (t.cashback_value || 0), 0);
         const ticketsAVencer = aVencer.length;
 
+        // Granular Expiration Buckets
+        const getExpiringInDays = (days: number) => {
+            const targetDate = new Date(today);
+            targetDate.setDate(today.getDate() + days);
+            return aVencer.filter(t => {
+                const expDate = new Date(t.cashback_expiration_date);
+                expDate.setHours(0, 0, 0, 0);
+                return expDate.getTime() === targetDate.getTime();
+            });
+        };
+
+        const expiringToday = getExpiringInDays(0);
+        const expiringIn1Day = getExpiringInDays(1);
+        const expiringIn2Days = getExpiringInDays(2);
+        const expiringIn3Days = getExpiringInDays(3);
+        const expiringIn5Days = getExpiringInDays(5);
+        const expiringIn7Days = getExpiringInDays(7);
+
         return {
             bonusGerado,
             ticketsGerados,
@@ -387,6 +405,14 @@ export const api = {
             percentualPerdido,
             bonusAVencer,
             ticketsAVencer,
+            expiringBuckets: {
+                today: { count: expiringToday.length, value: expiringToday.reduce((sum, t) => sum + (t.cashback_value || 0), 0) },
+                in1Day: { count: expiringIn1Day.length, value: expiringIn1Day.reduce((sum, t) => sum + (t.cashback_value || 0), 0) },
+                in2Days: { count: expiringIn2Days.length, value: expiringIn2Days.reduce((sum, t) => sum + (t.cashback_value || 0), 0) },
+                in3Days: { count: expiringIn3Days.length, value: expiringIn3Days.reduce((sum, t) => sum + (t.cashback_value || 0), 0) },
+                in5Days: { count: expiringIn5Days.length, value: expiringIn5Days.reduce((sum, t) => sum + (t.cashback_value || 0), 0) },
+                in7Days: { count: expiringIn7Days.length, value: expiringIn7Days.reduce((sum, t) => sum + (t.cashback_value || 0), 0) },
+            },
             transacoesPerdidas: perdidos.map(t => ({
                 id: t.id,
                 purchaseDate: t.purchase_date,
@@ -394,13 +420,22 @@ export const api = {
                 cashbackValue: t.cashback_value,
                 expirationDate: t.cashback_expiration_date
             })),
-            transacoesAVencer: aVencer.map(t => ({
-                id: t.id,
-                purchaseDate: t.purchase_date,
-                customerName: t.customer_name,
-                cashbackValue: t.cashback_value,
-                expirationDate: t.cashback_expiration_date
-            }))
+            transacoesAVencer: aVencer.map(t => {
+                const expDate = new Date(t.cashback_expiration_date);
+                expDate.setHours(0, 0, 0, 0);
+                const diffTime = Math.abs(expDate.getTime() - today.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                return {
+                    id: t.id,
+                    purchaseDate: t.purchase_date,
+                    customerName: t.customer_name,
+                    cashbackValue: t.cashback_value,
+                    expirationDate: t.cashback_expiration_date,
+                    daysRemaining: diffDays,
+                    clientId: t.client_id
+                };
+            }).sort((a, b) => a.daysRemaining - b.daysRemaining)
         };
     },
 
@@ -498,6 +533,66 @@ export const api = {
         if (error) throw error;
     },
 
+    // PRODUCTS CRUD
+    getProducts: async (companyId: string) => {
+        const { data, error } = await supabase
+            .from('products')
+            .select('*')
+            .eq('company_id', companyId)
+            .order('name', { ascending: true });
+
+        if (error) throw error;
+
+        return (data || []).map(p => ({
+            id: p.id,
+            companyId: p.company_id,
+            name: p.name,
+            description: p.description,
+            category: p.category,
+            isActive: p.is_active
+        }));
+    },
+
+    addProduct: async (companyId: string, productData: any) => {
+        const payload = {
+            company_id: companyId,
+            name: productData.name,
+            description: productData.description,
+            category: productData.category,
+            is_active: productData.isActive ?? true
+        };
+
+        const { data, error } = await supabase.from('products').insert([payload]).select().single();
+        if (error) throw error;
+
+        return {
+            id: data.id,
+            companyId: data.company_id,
+            name: data.name,
+            description: data.description,
+            category: data.category,
+            isActive: data.is_active
+        };
+    },
+
+    updateProduct: async (productId: string, productData: any) => {
+        const payload: any = {
+            name: productData.name,
+            description: productData.description,
+            category: productData.category,
+            is_active: productData.isActive,
+            updated_at: new Date().toISOString()
+        };
+
+        const { error } = await supabase.from('products').update(payload).eq('id', productId);
+        if (error) throw error;
+    },
+
+    deleteProduct: async (productId: string) => {
+        const { error } = await supabase.from('products').delete().eq('id', productId);
+        if (error) throw error;
+    },
+
     getUserData: async (userId: string) => {
         const profile = await api.getProfile(userId);
         if (!profile) throw new Error("User not found");
@@ -572,6 +667,7 @@ export const api = {
             customer_name: data.customerName,
             seller_name: data.sellerName,
             product: data.product,
+            products_details: data.productsDetails || null, // JSONB array
             purchase_value: data.purchaseValue,
             cashback_percentage: data.cashbackPercentage,
             cashback_value: data.cashbackValue,

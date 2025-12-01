@@ -1,20 +1,20 @@
 
 export enum UserRole {
-  MANAGER = 'MANAGER',
-  ADM = 'ADM',
-  SELLER = 'SELLER',
-  USER = 'USER',
+    MANAGER = 'MANAGER',
+    ADM = 'ADM',
+    SELLER = 'SELLER',
+    USER = 'USER',
 }
 
 export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  companyId?: string;
-  loyaltyTier?: 'Diamante' | 'Platina' | 'Ouro' | 'Nenhum';
-  points?: number;
-  cpf?: string;
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+    companyId?: string;
+    loyaltyTier?: 'Diamante' | 'Platina' | 'Ouro' | 'Nenhum';
+    points?: number;
+    cpf?: string;
 }
 
 export enum CompanyPlan {
@@ -81,4 +81,13 @@ export interface Client {
     totalCashback: number;
     status: 'Diamante' | 'Platina' | 'Ouro' | 'Nenhum';
     points: number;
+}
+
+export interface Product {
+    id: string;
+    companyId: string;
+    name: string;
+    description?: string;
+    category?: string;
+    isActive: boolean;
 }

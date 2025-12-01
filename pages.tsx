@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import type { User, Company, Transaction, Campaign, Client } from './types';
+import type { User, Company, Transaction, Campaign, Client, Product } from './types';
 import { UserRole, CompanyPlan, AreaOfActivity } from './types';
 import { api } from './services';
 import { Button, Card, Icons, Input, StatCard, CompanyTable, SalesChart, ClientRanking, TransactionHistory, CampaignCard, Modal, ConfirmationModal, Textarea, Podium, Select } from './components';
@@ -716,6 +716,47 @@ const AdminDashboard: React.FC<{ user: User }> = ({ user }) => {
                 </Card>
             </div>
 
+            {/* Próximos Vencimentos */}
+            <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-gray-800">Próximos Vencimentos</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                    {[
+                        { label: 'Hoje', key: 'today', color: 'red' },
+                        { label: 'Em 1 dia', key: 'in1Day', color: 'orange' },
+                        { label: 'Em 2 dias', key: 'in2Days', color: 'orange' },
+                        { label: 'Em 3 dias', key: 'in3Days', color: 'yellow' },
+                        { label: 'Em 5 dias', key: 'in5Days', color: 'blue' },
+                        { label: 'Em 7 dias', key: 'in7Days', color: 'gray' },
+                    ].map((item) => {
+                        const bucket = metrics.expiringBuckets?.[item.key] || { count: 0, value: 0 };
+                        const hasItems = bucket.count > 0;
+
+                        let bgClass = 'bg-gray-50 border-gray-200';
+                        let textClass = 'text-gray-700';
+                        let valueClass = 'text-gray-900';
+
+                        if (hasItems) {
+                            if (item.color === 'red') { bgClass = 'bg-red-50 border-red-200'; textClass = 'text-red-700'; valueClass = 'text-red-900'; }
+                            else if (item.color === 'orange') { bgClass = 'bg-orange-50 border-orange-200'; textClass = 'text-orange-700'; valueClass = 'text-orange-900'; }
+                            else if (item.color === 'yellow') { bgClass = 'bg-yellow-50 border-yellow-200'; textClass = 'text-yellow-700'; valueClass = 'text-yellow-900'; }
+                            else if (item.color === 'blue') { bgClass = 'bg-blue-50 border-blue-200'; textClass = 'text-blue-700'; valueClass = 'text-blue-900'; }
+                        }
+
+                        return (
+                            <Card key={item.key} className={`p-3 text-center border ${bgClass} transition-all hover:shadow-md`}>
+                                <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${textClass}`}>{item.label}</div>
+                                <div className={`text-xl font-bold mb-1 ${valueClass}`}>
+                                    {bucket.count}
+                                </div>
+                                <div className={`text-xs ${textClass} opacity-80`}>
+                                    R$ {bucket.value.toFixed(2)}
+                                </div>
+                            </Card>
+                        );
+                    })}
+                </div>
+            </div>
+
             {/* Tabela de Cashbacks Perdidos */}
             {metrics.transacoesPerdidas.length > 0 && (
                 <Card className="p-6">
@@ -1115,6 +1156,14 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
     const [searchPerformed, setSearchPerformed] = useState(false);
     const [showQuickRegisterModal, setShowQuickRegisterModal] = useState(false);
 
+    // Products state
+    const [products, setProducts] = useState<Product[]>([]);
+    const [selectedProduct, setSelectedProduct] = useState('');
+
+    // Product items state for multiple products
+    const [productItems, setProductItems] = useState<{ id: number, name: string, value: string, customName: string }[]>([{ id: 1, name: '', value: '', customName: '' }]);
+    const [nextItemId, setNextItemId] = useState(2);
+
     // Autocomplete states
     const [searchResults, setSearchResults] = useState<Client[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -1122,10 +1171,14 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
 
     useEffect(() => {
         if (user.companyId) {
-            api.getAdminData(user.companyId).then(data => {
-                if (data.company) {
-                    setCompanyName(data.company.name);
+            Promise.all([
+                api.getAdminData(user.companyId),
+                api.getProducts(user.companyId)
+            ]).then(([adminData, productsData]) => {
+                if (adminData.company) {
+                    setCompanyName(adminData.company.name);
                 }
+                setProducts(productsData.filter(p => p.isActive));
             });
         }
     }, [user.companyId]);
@@ -1168,6 +1221,27 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
         setSearchPerformed(true);
     };
 
+    const addProductItem = () => {
+        setProductItems([...productItems, { id: nextItemId, name: '', value: '', customName: '' }]);
+        setNextItemId(nextItemId + 1);
+    };
+
+    const removeProductItem = (id: number) => {
+        if (productItems.length > 1) {
+            setProductItems(productItems.filter(item => item.id !== id));
+        }
+    };
+
+    const updateProductItem = (id: number, field: 'name' | 'value' | 'customName', value: string) => {
+        setProductItems(productItems.map(item =>
+            item.id === id ? { ...item, [field]: value } : item
+        ));
+    };
+
+    const getTotalValue = (): number => {
+        return productItems.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
+    };
+
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (!user.companyId || !foundClient) {
@@ -1178,26 +1252,37 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
         setSuccess(false);
 
         try {
-            const formData = new FormData(e.currentTarget);
-            const data = Object.fromEntries(formData.entries());
+            // Build products array from productItems
+            const productsData = productItems.map(item => {
+                const productName = item.name === '__custom__' ? item.customName : item.name;
+                return {
+                    name: productName,
+                    value: parseFloat(item.value) || 0
+                };
+            });
 
-            const purchaseValue = parseFloat(data.value as string);
-            const cashbackPercentage = parseFloat(data.cashbackPercentage as string);
+            const purchaseValue = getTotalValue();
+            const cashbackPercentage = parseFloat((document.getElementById('cashbackPercentage') as HTMLInputElement)?.value || '0');
             const cashbackValue = (purchaseValue * cashbackPercentage) / 100;
 
+            // Create product string for legacy field
+            const productString = productsData.map(p => p.name).join(', ');
+
             const today = new Date().toISOString().split('T')[0];
+            const expirationDate = (document.getElementById('expirationDate') as HTMLInputElement)?.value;
 
             await api.addTransaction(user.companyId, {
-                clientId: foundClient.id,  // Using found client ID
+                clientId: foundClient.id,
                 customerName: foundClient.name,
                 customerPhone: foundClient.phone || '',
                 customerEmail: foundClient.email || '',
-                product: data.product as string,
+                product: productString,
+                productsDetails: productsData,
                 purchaseValue: purchaseValue,
                 cashbackPercentage: cashbackPercentage,
                 cashbackValue: cashbackValue,
                 purchaseDate: today,
-                cashbackExpirationDate: data.expirationDate as string,
+                cashbackExpirationDate: expirationDate,
                 status: 'Disponível',
                 sellerId: user.id,
                 sellerName: user.name,
@@ -1215,9 +1300,9 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                     email: foundClient.email || '',
                 },
                 purchase: {
-                    product: data.product,
-                    value: data.value,
-                    cashbackPercentage: data.cashbackPercentage,
+                    product: productString,
+                    value: purchaseValue,
+                    cashbackPercentage: cashbackPercentage,
                     cashbackValue: cashbackValue.toFixed(2),
                 }
             });
@@ -1229,6 +1314,9 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
             setSearchTerm('');
             setFoundClient(null);
             setSearchPerformed(false);
+            setSelectedProduct('');
+            setProductItems([{ id: 1, name: '', value: '', customName: '' }]);
+            setNextItemId(2);
 
             setTimeout(() => setSuccess(false), 5000);
         } catch (error) {
@@ -1348,15 +1436,97 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                         </div>
                     )}
 
-                    <div>
-                        <label className="block text-gray-700 mb-1" htmlFor="product">Produto ou Serviço</label>
-                        <Input name="product" id="product" required disabled={!foundClient} />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-gray-700 mb-1" htmlFor="value">Valor da Compra (R$)</label>
-                            <Input name="value" id="value" type="number" step="0.01" required disabled={!foundClient} />
+                    {/* Multiple Products Section */}
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <label className="block text-gray-700 font-semibold">Produtos/Serviços</label>
+                            <Button
+                                type="button"
+                                onClick={addProductItem}
+                                disabled={!foundClient}
+                                className="bg-green-600 hover:bg-green-700 text-sm py-1 px-3"
+                            >
+                                <Icons.PlusCircle className="w-4 h-4 inline mr-1" />
+                                Adicionar Produto
+                            </Button>
                         </div>
+
+                        {productItems.map((item, index) => (
+                            <div key={item.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-2">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-semibold text-gray-700">Produto {index + 1}</span>
+                                    {productItems.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeProductItem(item.id)}
+                                            className="text-red-600 hover:text-red-800 text-sm"
+                                        >
+                                            <Icons.Trash className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-gray-600 text-sm mb-1">Nome do Produto/Serviço *</label>
+                                        {products.length > 0 ? (
+                                            <Select
+                                                value={item.name}
+                                                onChange={(e) => updateProductItem(item.id, 'name', e.target.value)}
+                                                disabled={!foundClient}
+                                                required
+                                            >
+                                                <option value="">Selecione...</option>
+                                                {products.map(p => (
+                                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                                ))}
+                                                <option value="__custom__">Outro (digitar)</option>
+                                            </Select>
+                                        ) : (
+                                            <Input
+                                                value={item.name}
+                                                onChange={(e) => updateProductItem(item.id, 'name', e.target.value)}
+                                                placeholder="Nome do produto/serviço"
+                                                disabled={!foundClient}
+                                                required
+                                            />
+                                        )}
+                                        {item.name === '__custom__' && (
+                                            <Input
+                                                className="mt-2"
+                                                placeholder="Digite o nome..."
+                                                value={item.customName}
+                                                onChange={(e) => updateProductItem(item.id, 'customName', e.target.value)}
+                                                disabled={!foundClient}
+                                                required
+                                            />
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-gray-600 text-sm mb-1">Valor (R$) *</label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={item.value}
+                                            onChange={(e) => updateProductItem(item.id, 'value', e.target.value)}
+                                            placeholder="0.00"
+                                            disabled={!foundClient}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* Total Display */}
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded flex justify-between items-center">
+                            <span className="font-semibold text-blue-900">Valor Total da Compra:</span>
+                            <span className="text-2xl font-bold text-blue-700">R$ {getTotalValue().toFixed(2)}</span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-gray-700 mb-1" htmlFor="cashbackPercentage">% de Cashback</label>
                             <Input name="cashbackPercentage" id="cashbackPercentage" type="number" step="0.01" required disabled={!foundClient} />
@@ -2030,18 +2200,215 @@ const ClientFormModal: React.FC<{
     );
 };
 
+// PRODUCTS PAGE
+const ProductFormModal: React.FC<{
+    isOpen: boolean;
+    onClose: (didSave?: boolean) => void;
+    onSave: (productData: any) => Promise<void>;
+    product: Product | null;
+}> = ({ isOpen, onClose, onSave, product }) => {
+    const [formData, setFormData] = useState({
+        name: '',
+        description: '',
+        category: '',
+        isActive: true
+    });
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (product) {
+            setFormData({
+                name: product.name,
+                description: product.description || '',
+                category: product.category || '',
+                isActive: product.isActive
+            });
+        } else {
+            setFormData({ name: '', description: '', category: '', isActive: true });
+        }
+    }, [product, isOpen]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
+        setFormData({ ...formData, [e.target.name]: value });
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        await onSave(formData);
+        setLoading(false);
+        onClose(true);
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={() => onClose()} title={product ? 'Editar Produto/Serviço' : 'Novo Produto/Serviço'}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-gray-700 mb-1">Nome *</label>
+                    <Input name="name" value={formData.name} onChange={handleChange} required />
+                </div>
+                <div>
+                    <label className="block text-gray-700 mb-1">Categoria</label>
+                    <Input name="category" value={formData.category} onChange={handleChange} placeholder="Ex: Serviço, Produto, Tratamento..." />
+                </div>
+                <div>
+                    <label className="block text-gray-700 mb-1">Descrição</label>
+                    <Textarea name="description" value={formData.description} onChange={handleChange} rows={3} />
+                </div>
+                <div className="flex items-center gap-2">
+                    <input
+                        type="checkbox"
+                        name="isActive"
+                        id="isActive"
+                        checked={formData.isActive}
+                        onChange={handleChange}
+                        className="w-4 h-4"
+                    />
+                    <label htmlFor="isActive" className="text-gray-700 cursor-pointer">Ativo</label>
+                </div>
+                <div className="pt-4 flex justify-end gap-3">
+                    <Button onClick={() => onClose()} type="button" className="bg-gray-200 text-gray-800 hover:bg-gray-300">Cancelar</Button>
+                    <Button type="submit" disabled={loading}>{loading ? 'Salvando...' : 'Salvar'}</Button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+export const ProductsPage: React.FC<{ user: User }> = ({ user }) => {
+    const [products, setProducts] = useState<Product[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+    const fetchProducts = useCallback(async () => {
+        if (!user.companyId) return;
+        setLoading(true);
+        try {
+            const data = await api.getProducts(user.companyId);
+            setProducts(data);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    }, [user.companyId]);
+
+    useEffect(() => {
+        fetchProducts();
+    }, [fetchProducts]);
+
+    const handleAdd = () => {
+        setEditingProduct(null);
+        setIsModalOpen(true);
+    };
+
+    const handleEdit = (product: Product) => {
+        setEditingProduct(product);
+        setIsModalOpen(true);
+    };
+
+    const handleDelete = async (product: Product) => {
+        if (!window.confirm(`Tem certeza que deseja excluir "${product.name}"?`)) return;
+        try {
+            await api.deleteProduct(product.id);
+            fetchProducts();
+        } catch (e) {
+            console.error(e);
+            alert('Erro ao excluir produto.');
+        }
+    };
+
+    const handleSave = async (data: any) => {
+        if (!user.companyId) return;
+        if (editingProduct) {
+            await api.updateProduct(editingProduct.id, data);
+        } else {
+            await api.addProduct(user.companyId, data);
+        }
+        fetchProducts();
+    };
+
+    return (
+        <main className="p-4 sm:p-6 space-y-6">
+            <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-bold">Produtos e Serviços</h1>
+                <Button onClick={handleAdd} className="inline-flex items-center">
+                    <Icons.PlusCircle className="w-5 h-5 mr-2" />
+                    Adicionar Produto/Serviço
+                </Button>
+            </div>
+            {loading ? <p>Carregando...</p> : (
+                <Card>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[600px]">
+                            <thead>
+                                <tr className="border-b bg-gray-50">
+                                    <th className="p-3">Nome</th>
+                                    <th className="p-3">Categoria</th>
+                                    <th className="p-3">Descrição</th>
+                                    <th className="p-3">Status</th>
+                                    <th className="p-3">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {products.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={5} className="p-8 text-center text-gray-500">
+                                            Nenhum produto cadastrado. Clique em "Adicionar" para começar.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    products.map(p => (
+                                        <tr key={p.id} className="border-b hover:bg-gray-50">
+                                            <td className="p-3 font-semibold">{p.name}</td>
+                                            <td className="p-3 text-gray-600">{p.category || '-'}</td>
+                                            <td className="p-3 text-gray-500 text-sm">{p.description || '-'}</td>
+                                            <td className="p-3">
+                                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                                                    {p.isActive ? 'Ativo' : 'Inativo'}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 flex gap-2">
+                                                <button onClick={() => handleEdit(p)} className="text-brand-primary hover:bg-brand-primary/10 p-2 rounded">
+                                                    <Icons.Edit className="w-5 h-5" />
+                                                </button>
+                                                <button onClick={() => handleDelete(p)} className="text-red-600 hover:bg-red-50 p-2 rounded">
+                                                    <Icons.Trash className="w-5 h-5" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            )}
+            <ProductFormModal isOpen={isModalOpen} onClose={(saved) => { setIsModalOpen(false); if (saved) fetchProducts(); }} onSave={handleSave} product={editingProduct} />
+        </main>
+    );
+};
+
 export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
     const [clients, setClients] = useState<Client[]>([]);
+    const [expiringTransactions, setExpiringTransactions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
+    const [activeTab, setActiveTab] = useState<'clients' | 'expiring'>('clients');
 
     const fetchClients = useCallback(async () => {
         if (!user.companyId) return;
         setLoading(true);
         try {
-            const data = await api.getAdminData(user.companyId);
-            setClients(data.clients);
+            const [adminData, metricsData] = await Promise.all([
+                api.getAdminData(user.companyId),
+                api.getDashboardMetrics(user.companyId)
+            ]);
+            setClients(adminData.clients);
+            setExpiringTransactions(metricsData.transacoesAVencer || []);
         } catch (e) {
             console.error(e);
         } finally {
@@ -2074,14 +2441,33 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
 
     return (
         <main className="p-4 sm:p-6 space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h1 className="text-2xl font-bold">Gestão de Clientes</h1>
-                <Button onClick={handleAdd} className="inline-flex items-center">
-                    <Icons.PlusCircle className="w-5 h-5 mr-2" />
-                    Adicionar Cliente
-                </Button>
+                <div className="flex gap-2">
+                    <div className="bg-gray-100 p-1 rounded-lg flex">
+                        <button
+                            onClick={() => setActiveTab('clients')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'clients' ? 'bg-white shadow text-brand-primary' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Lista de Clientes
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('expiring')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'expiring' ? 'bg-white shadow text-brand-primary' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Vencimentos Próximos
+                        </button>
+                    </div>
+                    {activeTab === 'clients' && (
+                        <Button onClick={handleAdd} className="inline-flex items-center">
+                            <Icons.PlusCircle className="w-5 h-5 mr-2" />
+                            Adicionar Cliente
+                        </Button>
+                    )}
+                </div>
             </div>
-            {loading ? <p>Carregando...</p> : (
+
+            {loading ? <p>Carregando...</p> : activeTab === 'clients' ? (
                 <Card>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left min-w-[600px]">
@@ -2110,6 +2496,79 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                                         </td>
                                     </tr>
                                 ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            ) : (
+                <Card>
+                    <div className="p-4 border-b border-gray-100">
+                        <h3 className="font-semibold text-gray-800">Cashbacks Expirando em Breve (30 dias)</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[600px]">
+                            <thead>
+                                <tr className="border-b bg-gray-50">
+                                    <th className="p-3">Dias Restantes</th>
+                                    <th className="p-3">Data Vencimento</th>
+                                    <th className="p-3">Cliente</th>
+                                    <th className="p-3">Valor Cashback</th>
+                                    <th className="p-3">Data Compra</th>
+                                    <th className="p-3">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {expiringTransactions.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="p-8 text-center text-gray-500">
+                                            Nenhum cashback próximo do vencimento.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    expiringTransactions.map(t => {
+                                        let urgencyClass = 'bg-green-100 text-green-800';
+                                        if (t.daysRemaining <= 1) urgencyClass = 'bg-red-100 text-red-800';
+                                        else if (t.daysRemaining <= 3) urgencyClass = 'bg-orange-100 text-orange-800';
+                                        else if (t.daysRemaining <= 7) urgencyClass = 'bg-yellow-100 text-yellow-800';
+
+                                        // Encontrar telefone do cliente
+                                        const client = clients.find(c => c.id === t.clientId);
+                                        const phone = client?.phone || '';
+
+                                        return (
+                                            <tr key={t.id} className="border-b hover:bg-gray-50">
+                                                <td className="p-3">
+                                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${urgencyClass}`}>
+                                                        {t.daysRemaining === 0 ? 'HOJE' : `${t.daysRemaining} dias`}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-gray-600">
+                                                    {new Date(t.expirationDate).toLocaleDateString('pt-BR')}
+                                                </td>
+                                                <td className="p-3 font-medium text-gray-900">{t.customerName}</td>
+                                                <td className="p-3 font-bold text-brand-primary">
+                                                    R$ {t.cashbackValue.toFixed(2)}
+                                                </td>
+                                                <td className="p-3 text-gray-500 text-sm">
+                                                    {new Date(t.purchaseDate).toLocaleDateString('pt-BR')}
+                                                </td>
+                                                <td className="p-3">
+                                                    {phone && (
+                                                        <a
+                                                            href={`https://wa.me/${phone.replace(/\D/g, '')}?text=Olá ${t.customerName}, seu cashback de R$ ${t.cashbackValue.toFixed(2)} vence em ${t.daysRemaining === 0 ? 'hoje' : t.daysRemaining + ' dias'}! Venha aproveitar!`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-green-600 hover:text-green-800 flex items-center gap-1 text-sm font-medium"
+                                                        >
+                                                            <Icons.MessageSquare className="w-4 h-4" />
+                                                            Avisar
+                                                        </a>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -2467,6 +2926,8 @@ export const Dashboard: React.FC<{ user: User; onNavigate: (page: string) => voi
             return <UsersPage user={user} />;
         case 'clientes':
             return <ClientsPage user={user} />;
+        case 'produtos':
+            return <ProductsPage user={user} />;
         case 'whatsapp':
             return <WhatsAppConnectionPage user={user} />;
         case 'campanhas':

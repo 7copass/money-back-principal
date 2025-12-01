@@ -171,6 +171,7 @@ const pageTitles: { [key: string]: string } = {
     whatsapp: 'Conexão WhatsApp',
     usuarios: 'Usuários',
     clientes: 'Clientes',
+    produtos: 'Produtos e Serviços',
     permissoes: 'Permissões',
     historico: 'Histórico',
     ranking: 'Ranking',
