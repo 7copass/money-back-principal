@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { User, Company, Transaction, Campaign, Client } from './types';
 import { UserRole, CompanyPlan, AreaOfActivity } from './types';
 import { api } from './services';
-import { Button, Card, Icons, Input, StatCard, CompanyTable, SalesChart, ClientRanking, TransactionHistory, CampaignCard, Modal, Textarea, Podium, Select } from './components';
+import { Button, Card, Icons, Input, StatCard, CompanyTable, SalesChart, ClientRanking, TransactionHistory, CampaignCard, Modal, ConfirmationModal, Textarea, Podium, Select } from './components';
 
 // LOGIN PAGE
 export const LoginPage: React.FC = () => {
@@ -59,113 +59,702 @@ export const LoginPage: React.FC = () => {
 // DASHBOARD PAGES
 const ManagerDashboard: React.FC<{ user: User }> = ({ user }) => {
     const [data, setData] = useState<Awaited<ReturnType<typeof api.getManagerData>> | null>(null);
+    const [metrics, setMetrics] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        api.getManagerData()
-            .then(setData)
+        Promise.all([
+            api.getManagerData(),
+            api.getManagerMetrics()
+        ])
+            .then(([managerData, metricsData]) => {
+                setData(managerData);
+                setMetrics(metricsData);
+                setLoading(false);
+            })
             .catch(err => {
-                console.error("Aguardando dados do servidor...", err);
+                console.error("Erro ao carregar dados:", err);
+                setLoading(false);
             });
     }, []);
 
-    if (!data) return <div className="p-4 sm:p-6 text-center text-gray-500">Carregando dados do gestor...</div>;
+    if (loading) return <div className="p-4 sm:p-6 text-center text-gray-500">Carregando dados do gestor...</div>;
+    if (!data || !metrics) return <div className="p-4 sm:p-6 text-center text-red-500">Erro ao carregar dados</div>;
+
+    // Função auxiliar para formatar último uso
+    const formatLastUsed = (date: Date | null) => {
+        if (!date) return 'Nunca';
+        const days = Math.floor((new Date().getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+        if (days === 0) return 'Hoje';
+        if (days === 1) return 'Ontem';
+        if (days < 7) return `Há ${days} dias`;
+        if (days < 30) return `Há ${Math.floor(days / 7)} semanas`;
+        return `Há ${Math.floor(days / 30)} meses`;
+    };
 
     return (
         <main className="p-4 sm:p-6 space-y-6">
+            {/* Cards Financeiros Principais */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                <StatCard title="Cashback Gerado" value={data.globalStats.totalCashbackGenerated.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} icon={Icons.Cash} />
-                <StatCard title="Cashback Vencido" value={data.globalStats.cashbackVencido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} icon={Icons.History} />
-                <StatCard title="Clientes Ativos" value={data.globalStats.clientesAtivos.toString()} icon={Icons.Users} />
-                <StatCard title="Campanhas Ativas" value={data.globalStats.campanhasAtivas.toString()} icon={Icons.Gift} />
-                <StatCard title="Taxa Conversão Média" value={`${data.globalStats.taxaConversaoMedia}%`} icon={Icons.Trophy} />
-                <StatCard title="Cashback Resgatável" value={data.globalStats.cashbackResgatavel.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} icon={Icons.Cash} />
+                {/* MRR */}
+                <Card className="p-4 bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs text-gray-600 uppercase tracking-wide font-semibold">MRR</div>
+                        <div className="text-2xl">💰</div>
+                    </div>
+                    <div className="text-3xl font-bold text-green-700 mb-1">
+                        R$ {metrics.mrr.toLocaleString('pt-BR')}
+                    </div>
+                    <div className="text-xs text-gray-600">Receita Mensal Recorrente</div>
+                    {metrics.mrrGrowth !== 0 && (
+                        <div className={`text-xs mt-1 ${metrics.mrrGrowth > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {metrics.mrrGrowth > 0 ? '↑' : '↓'} {Math.abs(metrics.mrrGrowth).toFixed(1)}% vs mês anterior
+                        </div>
+                    )}
+                </Card>
+
+                {/* ARR */}
+                <Card className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs text-gray-600 uppercase tracking-wide font-semibold">ARR</div>
+                        <div className="text-2xl">📈</div>
+                    </div>
+                    <div className="text-3xl font-bold text-blue-700 mb-1">
+                        R$ {metrics.arr.toLocaleString('pt-BR')}
+                    </div>
+                    <div className="text-xs text-gray-600">Receita Anual Projetada</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        MRR × 12 meses
+                    </div>
+                </Card>
+
+                {/* Clientes Ativos */}
+                <Card className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs text-gray-600 uppercase tracking-wide font-semibold">Clientes Ativos</div>
+                        <div className="text-2xl">👥</div>
+                    </div>
+                    <div className="text-3xl font-bold text-gray-900 mb-1">
+                        {metrics.activeClients}/{metrics.totalClients}
+                    </div>
+                    <div className="text-xs text-gray-600">Taxa de Ativação</div>
+                    <div className={`text-xs mt-1 font-semibold ${metrics.activationRate >= 80 ? 'text-green-600' :
+                        metrics.activationRate >= 60 ? 'text-yellow-600' : 'text-red-600'
+                        }`}>
+                        {metrics.activationRate.toFixed(1)}% ativos (30 dias)
+                    </div>
+                </Card>
             </div>
-            <CompanyTable companies={data.companies} />
+
+            {/* Breakdown por Plano */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                {/* Plano Starter */}
+                <Card className="p-4 bg-blue-50 border-blue-200">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-semibold text-blue-900">Plano Starter</div>
+                        <div className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">R$ 297/mês</div>
+                    </div>
+                    <div className="text-2xl font-bold text-blue-700 mb-1">
+                        {metrics.starterClients} clientes
+                    </div>
+                    <div className="text-xs text-gray-600">Receita mensal:</div>
+                    <div className="text-lg font-semibold text-blue-600">
+                        R$ {metrics.starterRevenue.toLocaleString('pt-BR')}
+                    </div>
+                </Card>
+
+                {/* Plano Growth/Premium */}
+                <Card className="p-4 bg-purple-50 border-purple-200">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-semibold text-purple-900">Plano Growth/Premium</div>
+                        <div className="text-xs bg-purple-200 text-purple-800 px-2 py-1 rounded">R$ 397/mês</div>
+                    </div>
+                    <div className="text-2xl font-bold text-purple-700 mb-1">
+                        {metrics.growthClients} clientes
+                    </div>
+                    <div className="text-xs text-gray-600">Receita mensal:</div>
+                    <div className="text-lg font-semibold text-purple-600">
+                        R$ {metrics.growthRevenue.toLocaleString('pt-BR')}
+                    </div>
+                </Card>
+            </div>
+
+            {/* Métricas de Saúde e Performance */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                {/* Clientes Inativos */}
+                <Card className={`p-4 ${metrics.inactiveClients > 3 ? 'bg-red-50 border-red-200' :
+                    metrics.inactiveClients > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'
+                    }`}>
+                    <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Clientes Inativos</div>
+                    <div className={`text-2xl font-bold mb-1 ${metrics.inactiveClients > 3 ? 'text-red-700' :
+                        metrics.inactiveClients > 0 ? 'text-yellow-700' : 'text-green-700'
+                        }`}>
+                        {metrics.inactiveClients}
+                    </div>
+                    <div className="text-xs text-gray-600">Sem transação há 15+ dias</div>
+                    {metrics.inactiveClients > 0 && (
+                        <div className="text-xs mt-1 text-red-600 font-semibold">⚠️ Requer atenção</div>
+                    )}
+                </Card>
+
+                {/* Transações no Mês */}
+                <Card className="p-4">
+                    <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Transações no Mês</div>
+                    <div className="text-2xl font-bold text-gray-900 mb-1">
+                        {metrics.monthTransactions}
+                    </div>
+                    <div className="text-xs text-gray-600">Processadas em {new Date().toLocaleDateString('pt-BR', { month: 'long' })}</div>
+                </Card>
+
+                {/* Taxa de Resgate */}
+                <Card className={`p-4 ${metrics.redeemRate >= 40 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'
+                    }`}>
+                    <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Taxa de Resgate</div>
+                    <div className={`text-2xl font-bold mb-1 ${metrics.redeemRate >= 40 ? 'text-green-700' : 'text-yellow-700'
+                        }`}>
+                        {metrics.redeemRate.toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-gray-600">
+                        {metrics.redeemRate >= 40 ? 'Excelente ✓' : 'Precisa melhorar'}
+                    </div>
+                </Card>
+
+                {/* Novos Clientes */}
+                <Card className="p-4 bg-indigo-50 border-indigo-200">
+                    <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Novos no Mês</div>
+                    <div className="text-2xl font-bold text-indigo-700 mb-1">
+                        {metrics.newClientsThisMonth}
+                    </div>
+                    <div className="text-xs text-gray-600">Clientes cadastrados</div>
+                </Card>
+            </div>
+
+            {/* Tabela de Empresas Melhorada */}
+            <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4">Empresas Cadastradas</h3>
+                <div className="overflow-x-auto">
+                    <table className="w-full">
+                        <thead className="bg-gray-50 border-b">
+                            <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plano</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Último Uso</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trans. Mês</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cashback</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clientes</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                            {data.companies.map(company => {
+                                const activity = metrics.companyActivity.find((a: any) => a.companyId === company.id);
+                                const isInactive = metrics.inactiveCompaniesList.some((c: any) => c.id === company.id);
+
+                                return (
+                                    <tr key={company.id} className="hover:bg-gray-50">
+                                        <td className="px-4 py-3 text-sm">
+                                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${isInactive ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                                                }`}>
+                                                {isInactive ? '🔴 Inativo' : '🟢 Ativo'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{company.name}</td>
+                                        <td className="px-4 py-3 text-sm">
+                                            <span className={`px-2 py-1 rounded text-xs ${company.plan === 'Starter' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                                                }`}>
+                                                {company.plan}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-600">
+                                            {formatLastUsed(activity?.lastTransactionDate || null)}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-900 font-semibold">
+                                            {activity?.monthTransactionsCount || 0}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-900">
+                                            R$ {(company.totalCashbackGenerated || 0).toFixed(2)}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-900">
+                                            {company.activeClients || 0}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </Card>
+        </main>
+    );
+};
+
+// WHATSAPP CONNECTION PAGE
+const WhatsAppConnectionPage: React.FC<{ user: User }> = ({ user }) => {
+    const [qrCode, setQrCode] = useState<string | null>(null);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isChecking, setIsChecking] = useState(true); // Novo estado para loading inicial
+    const [connectionInfo, setConnectionInfo] = useState<any>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    // Estado para edição do nome do perfil
+    const [isEditingProfileName, setIsEditingProfileName] = useState(false);
+    const [editedProfileName, setEditedProfileName] = useState('');
+
+    // Verificar status ao montar
+    useEffect(() => {
+        const init = async () => {
+            await checkConnection();
+            setIsChecking(false);
+        };
+        init();
+    }, []);
+
+    // Auto-renovar QR Code a cada 30 segundos
+    useEffect(() => {
+        if (!isConnected && qrCode) {
+            const interval = setInterval(async () => {
+                await refreshQRCode();
+            }, 30000); // 30 segundos
+
+            return () => clearInterval(interval);
+        }
+    }, [isConnected, qrCode]);
+
+    const checkConnection = async () => {
+        try {
+            const status = await api.evolution.getConnectionStatus(user.companyId);
+            console.log('[Frontend] Connection Status Check:', status);
+
+            // Busca informações da instância se o estado não for "close"
+            let info = null;
+            if (status.state !== 'close') {
+                info = await api.evolution.getInstanceInfo(user.companyId);
+                console.log('[Frontend] Instance Info:', info);
+            }
+
+            // Considera conectado apenas se:
+            // 1. Estado é 'open' ou 'connected', OU
+            // 2. Estado é 'connecting' E já tem informações válidas de conexão (ownerJid)
+            const connected =
+                status.state === 'open' ||
+                status.state === 'connected' ||
+                (status.state === 'connecting' && info && info.ownerJid);
+
+            setIsConnected(connected);
+
+            // Se tiver informações de conexão, verifica se tem nome salvo no localStorage
+            if (info) {
+                const savedName = localStorage.getItem(`whatsapp_profile_name_${user.companyId}`);
+                if (savedName) {
+                    console.log('[Frontend] Found saved profile name:', savedName);
+                    info.profileName = savedName;
+                }
+            }
+
+            setConnectionInfo(info);
+        } catch (error) {
+            console.error('Error checking connection:', error);
+        }
+    };
+
+    const handleGenerateQR = async () => {
+        setIsLoading(true);
+        setError(null);
+        console.log('[Frontend] Generating QR for company:', user.companyId);
+
+        try {
+            // Tenta criar instância (se não existir, ignora erro)
+            try {
+                await api.evolution.createInstance(user.companyId);
+            } catch (createError) {
+                console.log('[Frontend] Instance creation check:', createError);
+            }
+
+            // Obtém QR Code
+            await refreshQRCode();
+
+            // Inicia verificação de conexão a cada 2 segundos
+            const checkInterval = setInterval(async () => {
+                const status = await api.evolution.getConnectionStatus(user.companyId);
+                console.log('[Frontend] Polling Status:', status.state);
+
+                // Só considera conectado se tiver ownerJid ou estado 'open'/'connected'
+                if (status.state === 'open' || status.state === 'connected') {
+                    console.log('[Frontend] Connected! Updating UI...');
+                    const info = await api.evolution.getInstanceInfo(user.companyId);
+
+                    // Verifica se realmente tem dados de conexão
+                    if (info && info.ownerJid) {
+                        setIsConnected(true);
+                        setConnectionInfo(info);
+                        setQrCode(null);
+                        clearInterval(checkInterval);
+                    }
+                } else if (status.state === 'connecting') {
+                    // Se está connecting, verifica se já tem ownerJid (reconexão)
+                    const info = await api.evolution.getInstanceInfo(user.companyId);
+                    if (info && info.ownerJid) {
+                        console.log('[Frontend] Reconnected with existing session!');
+                        setIsConnected(true);
+                        setConnectionInfo(info);
+                        setQrCode(null);
+                        clearInterval(checkInterval);
+                    }
+                }
+            }, 2000);
+
+            // Limpa intervalo após 2 minutos (timeout)
+            setTimeout(() => clearInterval(checkInterval), 120000);
+        } catch (error: any) {
+            console.error('[Frontend] Erro ao gerar QR Code:', error);
+            setError(error.message || 'Erro ao conectar com Evolution API. Verifique as configurações.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const refreshQRCode = async () => {
+        try {
+            const qrData = await api.evolution.getQRCode(user.companyId);
+            if (qrData && qrData.code) {
+                setQrCode(qrData.code);
+            }
+        } catch (error) {
+            console.error('[Frontend] Erro ao atualizar QR Code:', error);
+            throw error; // Re-throw para ser pego no handleGenerateQR
+        }
+    };
+
+    const formatQRCode = (code: string) => {
+        if (!code) return '';
+        // Se já vier com prefixo, usa como está (confiando na API)
+        if (code.startsWith('data:image')) return code;
+        // Se não, adiciona o prefixo padrão
+        return `data:image/png;base64,${code}`;
+    };
+
+    const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+
+    const handleDisconnectClick = () => {
+        setShowDisconnectModal(true);
+    };
+
+    const handleDisconnectConfirm = async () => {
+        try {
+            await api.evolution.disconnect(user.companyId);
+            setIsConnected(false);
+            setQrCode(null);
+            setConnectionInfo(null);
+        } catch (error) {
+            console.error('Erro ao desconectar:', error);
+            alert('Erro ao desconectar. Tente novamente.');
+        }
+    };
+
+    return (
+        <main className="p-4 sm:p-6 space-y-6 max-w-2xl mx-auto">
+            <h2 className="text-2xl font-bold">Conexão WhatsApp</h2>
+
+            {error && (
+                <Card className="p-4 bg-red-50 border-red-200">
+                    <p className="text-red-700 text-sm">⚠️ {error}</p>
+                    <p className="text-red-600 text-xs mt-2">
+                        Configure as variáveis de ambiente: VITE_EVOLUTION_API_URL e VITE_EVOLUTION_API_KEY
+                    </p>
+                </Card>
+            )}
+
+            {isChecking ? (
+                <Card className="p-12 flex flex-col items-center justify-center text-gray-500">
+                    <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p>Verificando status da conexão...</p>
+                </Card>
+            ) : isConnected ? (
+                <Card className="p-6 bg-green-50 border-green-200">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="relative">
+                                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center border-2 border-green-500">
+                                    <Icons.MessageSquare className="w-6 h-6 text-green-600" />
+                                </div>
+                                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-green-900 text-lg">WhatsApp Conectado</h3>
+                                {connectionInfo && connectionInfo.ownerJid ? (
+                                    <p className="text-green-700 text-sm font-mono">
+                                        {connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4')}
+                                    </p>
+                                ) : (
+                                    <p className="text-green-700 text-sm">Sessão ativa e pronta para uso</p>
+                                )}
+                            </div>
+                        </div>
+                        <Button
+                            onClick={handleDisconnectClick}
+                            className="bg-white text-red-600 border border-red-200 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                        >
+                            Desconectar
+                        </Button>
+                    </div>
+
+                    {connectionInfo && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                            <div className="bg-white p-4 rounded-lg border border-green-100 shadow-sm">
+                                <span className="text-gray-500 text-xs font-bold uppercase tracking-wider block mb-1">Nome do Perfil</span>
+                                {isEditingProfileName ? (
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            value={editedProfileName}
+                                            onChange={(e) => setEditedProfileName(e.target.value)}
+                                            className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                                            placeholder="Digite o nome"
+                                            autoFocus
+                                        />
+                                        <button
+                                            onClick={() => {
+                                                if (editedProfileName.trim()) {
+                                                    const newName = editedProfileName.trim();
+                                                    setConnectionInfo({ ...connectionInfo, profileName: newName });
+                                                    // Salva no localStorage
+                                                    localStorage.setItem(`whatsapp_profile_name_${user.companyId}`, newName);
+                                                }
+                                                setIsEditingProfileName(false);
+                                            }}
+                                            className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                                        >
+                                            ✓
+                                        </button>
+                                        <button
+                                            onClick={() => setIsEditingProfileName(false)}
+                                            className="px-2 py-1 bg-gray-300 text-gray-700 rounded text-xs hover:bg-gray-400"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-between">
+                                        <p className="font-semibold text-gray-800 text-lg">
+                                            {connectionInfo.profileName?.trim() || (connectionInfo.ownerJid ? connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4') : 'Não identificado')}
+                                        </p>
+                                        <button
+                                            onClick={() => {
+                                                setEditedProfileName(connectionInfo.profileName?.trim() || '');
+                                                setIsEditingProfileName(true);
+                                            }}
+                                            className="ml-2 text-gray-400 hover:text-gray-600"
+                                            title="Editar nome"
+                                        >
+                                            <Icons.Edit className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="bg-white p-4 rounded-lg border border-green-100 shadow-sm">
+                                <span className="text-gray-500 text-xs font-bold uppercase tracking-wider block mb-1">Número Conectado</span>
+                                <p className="font-mono text-gray-800 text-lg">
+                                    {connectionInfo.ownerJid ? connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4') : 'N/A'}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </Card>
+            ) : (
+                <Card className="p-6 bg-gray-900 text-white">
+                    {!qrCode ? (
+                        <div className="text-center space-y-4">
+                            <h3 className="text-lg font-semibold text-blue-300">
+                                Leia o QR Code no seu Dispositivo
+                            </h3>
+                            <p className="text-sm text-gray-300">
+                                Siga os mesmos passos como se fosse conectar ao WhatsApp Web
+                            </p>
+                            <Button
+                                onClick={handleGenerateQR}
+                                disabled={isLoading}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold disabled:opacity-50"
+                            >
+                                {isLoading ? 'Gerando...' : 'Connect QR Code'}
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center space-y-6">
+                            <div className="bg-white p-4 rounded-xl">
+                                <img
+                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`}
+                                    alt="WhatsApp QR Code"
+                                    className="w-64 h-64"
+                                />
+                            </div>
+                            <div className="text-center space-y-2">
+                                <p className="text-blue-300 font-medium animate-pulse">
+                                    Aguardando leitura do QR Code...
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                    Atualiza automaticamente a cada 30s
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </Card>
+            )}
+            {/* Instructions */}
+            <Card className="p-6 bg-blue-50">
+                <h3 className="font-semibold mb-3 text-blue-900">📱 Como Conectar</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
+                    <li>Abra o WhatsApp no seu celular</li>
+                    <li>Toque em <strong>Configurações → Aparelhos conectados</strong></li>
+                    <li>Toque em <strong>"Conectar um aparelho"</strong></li>
+                    <li>Aponte seu celular para a tela para ler o código QR</li>
+                </ol>
+            </Card>
+
+            <ConfirmationModal
+                isOpen={showDisconnectModal}
+                onClose={() => setShowDisconnectModal(false)}
+                onConfirm={handleDisconnectConfirm}
+                title="Desconectar WhatsApp"
+                message="Tem certeza que deseja desconectar? Você precisará ler o QR Code novamente para reconectar."
+                confirmText="Desconectar"
+                variant="danger"
+            />
         </main>
     );
 };
 
 const AdminDashboard: React.FC<{ user: User }> = ({ user }) => {
     const [data, setData] = useState<{ company: Company, transactions: Transaction[], clients: Client[] } | null>(null);
+    const [metrics, setMetrics] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (user.companyId) {
-            api.getAdminData(user.companyId)
-                .then(setData)
+            Promise.all([
+                api.getAdminData(user.companyId),
+                api.getDashboardMetrics(user.companyId)
+            ])
+                .then(([adminData, metricsData]) => {
+                    setData(adminData);
+                    setMetrics(metricsData);
+                    setLoading(false);
+                })
                 .catch(console.error);
         }
     }, [user.companyId]);
 
-    // Calculate statistics dynamically from data
-    const stats = useMemo(() => {
-        if (!data) return null;
-
-        // Total cashback generated from all transactions
-        const totalCashback = data.transactions.reduce((sum, t) => sum + (t.cashbackValue || 0), 0);
-
-        // Active clients (clients with at least one transaction)
-        const clientsWithTransactions = new Set(data.transactions.map(t => t.clientId).filter(Boolean));
-        const activeClients = clientsWithTransactions.size;
-
-        // Conversion rate (clients with transactions / total clients)
-        const conversionRate = data.clients.length > 0
-            ? Math.round((activeClients / data.clients.length) * 100)
-            : 0;
-
-        // Monthly sales for chart (last 6 months)
-        const monthlySales: { month: string; value: number }[] = [];
-        const now = new Date();
-
-        for (let i = 5; i >= 0; i--) {
-            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const monthName = date.toLocaleDateString('pt-BR', { month: 'short' });
-            const monthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-
-            const monthTotal = data.transactions
-                .filter(t => {
-                    if (!t.purchaseDate) return false;
-                    const tDate = new Date(t.purchaseDate);
-                    const tMonthYear = `${tDate.getFullYear()}-${String(tDate.getMonth() + 1).padStart(2, '0')}`;
-                    return tMonthYear === monthYear;
-                })
-                .reduce((sum, t) => sum + (t.purchaseValue || 0), 0);
-
-            monthlySales.push({ month: monthName, value: monthTotal });
-        }
-
-        return { totalCashback, activeClients, conversionRate, monthlySales };
-    }, [data]);
-
-    if (!data || !stats) return (
+    if (loading || !data || !metrics) return (
         <main className="p-4 sm:p-6 space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                 {[1, 2, 3, 4].map(i => (
-                    <Card key={i} className="h-24 animate-pulse bg-gray-100"></Card>
+                    <Card key={i} className="h-32 animate-pulse bg-gray-100"></Card>
                 ))}
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-2 h-64 animate-pulse bg-gray-100"></Card>
-                <Card className="h-64 animate-pulse bg-gray-100"></Card>
-            </div>
+            <Card className="h-64 animate-pulse bg-gray-100"></Card>
         </main>
     );
 
     return (
         <main className="p-4 sm:p-6 space-y-6">
+            {/* Cards de Métricas */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                <StatCard title="Cashback Gerado" value={stats.totalCashback.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} icon={Icons.Cash} />
-                <StatCard title="Clientes Ativos" value={stats.activeClients.toString()} icon={Icons.Users} />
-                <StatCard title="Taxa de Conversão" value={`${stats.conversionRate}%`} icon={Icons.Trophy} />
-                <StatCard title="Plano" value={data.company.plan} icon={Icons.Building} />
+                {/* Bônus Gerado */}
+                <Card className="p-4">
+                    <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Bônus Gerado</div>
+                    <div className="text-2xl font-bold text-gray-900 mb-1">
+                        R$ {metrics.bonusGerado.toFixed(2)}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                        {metrics.ticketsGerados} tickets
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                        Vendas de: R$ {metrics.valorVendas.toFixed(2)}
+                    </div>
+                </Card>
+
+                {/* Bônus Resgatado */}
+                <Card className="p-4 bg-green-50 border-green-200">
+                    <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Bônus Resgatado</div>
+                    <div className="text-2xl font-bold text-green-700 mb-1">
+                        R$ {metrics.bonusResgatado.toFixed(2)}
+                    </div>
+                    <div className="text-xs text-green-600">
+                        ✓ R$ {metrics.bonusResgatado.toFixed(2)} ({metrics.percentualResgatado.toFixed(1)}%)
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        {metrics.ticketsResgatados} tickets
+                    </div>
+                </Card>
+
+                {/* Bônus Perdido */}
+                <Card className="p-4 bg-red-50 border-red-200">
+                    <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Bônus Perdido</div>
+                    <div className="text-2xl font-bold text-red-700 mb-1">
+                        R$ {metrics.bonusPerdido.toFixed(2)}
+                    </div>
+                    <div className="text-xs text-red-600 mb-1">
+                        {metrics.ticketsPerdidos} tickets
+                    </div>
+                    <div className="text-xs text-gray-500">
+                        {metrics.percentualPerdido.toFixed(1)}% de perda
+                    </div>
+                </Card>
+
+                {/* Bônus a Vencer */}
+                <Card className="p-4 bg-yellow-50 border-yellow-200">
+                    <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Bônus a Vencer</div>
+                    <div className="text-2xl font-bold text-yellow-700 mb-1">
+                        R$ {metrics.bonusAVencer.toFixed(2)}
+                    </div>
+                    <div className="text-xs text-yellow-600">
+                        {metrics.ticketsAVencer} tickets
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        Próximos 30 dias
+                    </div>
+                </Card>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
-                    <SalesChart data={stats.monthlySales} />
-                </div>
-                <div>
-                    <ClientRanking clients={data.clients} />
-                </div>
-            </div>
+
+            {/* Tabela de Cashbacks Perdidos */}
+            {metrics.transacoesPerdidas.length > 0 && (
+                <Card className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold">Cashbacks Perdidos (Expirados)</h3>
+                        <span className="text-sm text-gray-500">{metrics.transacoesPerdidas.length} registros</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-gray-50 border-b">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bônus Perdido</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expirou em</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                                {metrics.transacoesPerdidas.slice(0, 10).map((t: any) => (
+                                    <tr key={t.id} className="hover:bg-gray-50">
+                                        <td className="px-4 py-3 text-sm text-gray-900">
+                                            {new Date(t.purchaseDate).toLocaleDateString('pt-BR')}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-900">{t.customerName}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold text-red-600">
+                                            R$ {t.cashbackValue.toFixed(2)}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-500">
+                                            {new Date(t.expirationDate).toLocaleDateString('pt-BR')}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            )}
+
+            {/* Histórico de Transações */}
             <div>
                 <div className="flex items-center justify-between mb-2">
                     <h3 className="text-lg font-semibold">Histórico de Transações</h3>
@@ -526,6 +1115,11 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
     const [searchPerformed, setSearchPerformed] = useState(false);
     const [showQuickRegisterModal, setShowQuickRegisterModal] = useState(false);
 
+    // Autocomplete states
+    const [searchResults, setSearchResults] = useState<Client[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+
     useEffect(() => {
         if (user.companyId) {
             api.getAdminData(user.companyId).then(data => {
@@ -536,21 +1130,36 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
         }
     }, [user.companyId]);
 
-    const handleSearchClient = async () => {
-        if (!user.companyId || !searchTerm.trim()) return;
-
-        setSearchPerformed(true);
-        try {
-            const result = await api.findClientByPhoneOrCpf(user.companyId, searchTerm.trim());
-            if (result) {
-                setFoundClient(result.client);
+    // Autocomplete com debounce
+    useEffect(() => {
+        const timer = setTimeout(async () => {
+            if (searchTerm.trim().length >= 2 && user.companyId) {
+                setIsSearching(true);
+                setShowSuggestions(true);
+                try {
+                    const results = await api.searchClients(user.companyId, searchTerm.trim());
+                    setSearchResults(results);
+                } catch (error) {
+                    console.error("Erro ao buscar clientes:", error);
+                    setSearchResults([]);
+                } finally {
+                    setIsSearching(false);
+                }
             } else {
-                setFoundClient(null);
+                setSearchResults([]);
+                setShowSuggestions(false);
             }
-        } catch (error) {
-            console.error("Erro ao buscar cliente:", error);
-            setFoundClient(null);
-        }
+        }, 500); // Aguarda 500ms após parar de digitar
+
+        return () => clearTimeout(timer);
+    }, [searchTerm, user.companyId]);
+
+    const handleSelectClient = (client: Client) => {
+        setFoundClient(client);
+        setSearchTerm('');
+        setSearchResults([]);
+        setShowSuggestions(false);
+        setSearchPerformed(true);
     };
 
     const handleClientRegistered = (client: Client) => {
@@ -576,9 +1185,7 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
             const cashbackPercentage = parseFloat(data.cashbackPercentage as string);
             const cashbackValue = (purchaseValue * cashbackPercentage) / 100;
 
-            const today = new Date();
-            const expirationDate = new Date();
-            expirationDate.setDate(today.getDate() + 30);
+            const today = new Date().toISOString().split('T')[0];
 
             await api.addTransaction(user.companyId, {
                 clientId: foundClient.id,  // Using found client ID
@@ -589,8 +1196,8 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                 purchaseValue: purchaseValue,
                 cashbackPercentage: cashbackPercentage,
                 cashbackValue: cashbackValue,
-                purchaseDate: today.toISOString().split('T')[0],
-                cashbackExpirationDate: expirationDate.toISOString().split('T')[0],
+                purchaseDate: today,
+                cashbackExpirationDate: data.expirationDate as string,
                 status: 'Disponível',
                 sellerId: user.id,
                 sellerName: user.name,
@@ -648,16 +1255,59 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                 {/* Client Search Section */}
                 <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
                     <h3 className="text-lg font-semibold mb-3">1. Buscar Cliente</h3>
-                    <div className="flex gap-2">
+                    <div className="relative">
                         <Input
-                            placeholder="Busque por CPF ou Telefone"
+                            placeholder="Digite CPF, telefone ou nome do cliente..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="flex-1"
+                            onFocus={() => {
+                                if (searchResults.length > 0) setShowSuggestions(true);
+                            }}
+                            className="w-full"
                         />
-                        <Button type="button" onClick={handleSearchClient}>
-                            🔍 Buscar
-                        </Button>
+
+                        {/* Loading indicator */}
+                        {isSearching && (
+                            <div className="absolute right-3 top-3 text-gray-400">
+                                🔄 Buscando...
+                            </div>
+                        )}
+
+                        {/* Autocomplete dropdown */}
+                        {showSuggestions && searchResults.length > 0 && !foundClient && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                {searchResults.map((client) => (
+                                    <button
+                                        key={client.id}
+                                        type="button"
+                                        onClick={() => handleSelectClient(client)}
+                                        className="w-full text-left px-4 py-3 hover:bg-blue-50 border-b last:border-b-0 transition-colors"
+                                    >
+                                        <div className="font-semibold text-gray-900">{client.name}</div>
+                                        <div className="text-sm text-gray-600">
+                                            CPF: {client.cpf} | Telefone: {client.phone}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* No results message */}
+                        {showSuggestions && searchTerm.length >= 2 && searchResults.length === 0 && !isSearching && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg p-4">
+                                <p className="text-yellow-800 mb-2">Nenhum cliente encontrado.</p>
+                                <Button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowQuickRegisterModal(true);
+                                        setShowSuggestions(false);
+                                    }}
+                                    className="bg-blue-600 hover:bg-blue-700"
+                                >
+                                    + Cadastrar Novo Cliente
+                                </Button>
+                            </div>
+                        )}
                     </div>
 
                     {searchPerformed && foundClient && (
@@ -673,20 +1323,6 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                                     ✓
                                 </div>
                             </div>
-                        </div>
-                    )}
-
-                    {/* Not Found Message */}
-                    {searchPerformed && !foundClient && (
-                        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                            <p className="text-yellow-800 mb-2">Cliente não encontrado.</p>
-                            <Button
-                                type="button"
-                                onClick={() => setShowQuickRegisterModal(true)}
-                                className="bg-blue-600 hover:bg-blue-700"
-                            >
-                                + Cadastrar Novo Cliente
-                            </Button>
                         </div>
                     )}
                 </div>
@@ -725,6 +1361,23 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                             <label className="block text-gray-700 mb-1" htmlFor="cashbackPercentage">% de Cashback</label>
                             <Input name="cashbackPercentage" id="cashbackPercentage" type="number" step="0.01" required disabled={!foundClient} />
                         </div>
+                    </div>
+                    <div>
+                        <label className="block text-gray-700 mb-1" htmlFor="expirationDate">
+                            Data de Validade do Cashback <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                            name="expirationDate"
+                            id="expirationDate"
+                            type="date"
+                            min={new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0]}
+                            defaultValue={new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]}
+                            required
+                            disabled={!foundClient}
+                        />
+                        <p className="text-sm text-gray-500 mt-1">
+                            Defina até quando o cliente poderá usar este cashback
+                        </p>
                     </div>
                     <div className="pt-4">
                         <Button type="submit" className="w-full" disabled={loading || !foundClient}>
@@ -1814,6 +2467,8 @@ export const Dashboard: React.FC<{ user: User; onNavigate: (page: string) => voi
             return <UsersPage user={user} />;
         case 'clientes':
             return <ClientsPage user={user} />;
+        case 'whatsapp':
+            return <WhatsAppConnectionPage user={user} />;
         case 'campanhas':
             return <CampaignsPage user={user} />;
         case 'permissoes':

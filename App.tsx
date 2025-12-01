@@ -2,7 +2,7 @@
 import React, { useState, createContext, useContext, useCallback, useMemo, useEffect } from 'react';
 import type { User } from './types';
 import { UserRole } from './types';
-import { LoginPage, Dashboard, DatabaseFixModal } from './pages';
+import { LoginPage, Dashboard } from './pages';
 import { Sidebar, Header, Icons } from './components';
 import { supabase } from './supabaseClient';
 import { api } from './services';
@@ -168,6 +168,7 @@ const pageTitles: { [key: string]: string } = {
     resgatar: 'Resgatar Cashback',
     campanhas: 'Campanhas',
     empresas: 'Empresas',
+    whatsapp: 'Conexão WhatsApp',
     usuarios: 'Usuários',
     clientes: 'Clientes',
     permissoes: 'Permissões',

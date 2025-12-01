@@ -97,6 +97,132 @@ export const api = {
         }
     },
 
+    // 2.1 MÉTRICAS DO DASHBOARD DO GESTOR
+    getManagerMetrics: async () => {
+        // Busca todas as empresas
+        const { data: companies, error: companiesError } = await supabase
+            .from('companies')
+            .select('*');
+
+        if (companiesError) throw new Error(companiesError.message);
+
+        // Busca todas as transações (para calcular atividade)
+        const { data: allTransactions } = await supabase
+            .from('transactions')
+            .select('company_id, purchase_date, cashback_value, status, created_at');
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+
+        // 1. MRR (Monthly Recurring Revenue)
+        const starterClients = (companies || []).filter(c => c.plan === 'Starter').length;
+        const growthClients = (companies || []).filter(c => c.plan === 'Growth' || c.plan === 'Premium').length;
+        const mrr = (starterClients * 297) + (growthClients * 397);
+        const mrrLastMonth = mrr; // Simplificado - em produção, buscar histórico
+
+        // 2. ARR (Annual Recurring Revenue)
+        const arr = mrr * 12;
+
+        // 3. Breakdown por plano
+        const starterRevenue = starterClients * 297;
+        const growthRevenue = growthClients * 397;
+
+        // 4. Clientes Inativos (sem transação nos últimos 15 dias)
+        const days15Ago = new Date(today);
+        days15Ago.setDate(today.getDate() - 15);
+
+        const companiesWithRecentActivity = new Set(
+            (allTransactions || [])
+                .filter(t => new Date(t.purchase_date) >= days15Ago)
+                .map(t => t.company_id)
+        );
+
+        const inactiveCompanies = (companies || []).filter(c => !companiesWithRecentActivity.has(c.id));
+
+        // 5. Taxa de Ativação (ativos nos últimos 30 days)
+        const days30Ago = new Date(today);
+        days30Ago.setDate(today.getDate() - 30);
+
+        const companiesWithActivity30Days = new Set(
+            (allTransactions || [])
+                .filter(t => new Date(t.purchase_date) >= days30Ago)
+                .map(t => t.company_id)
+        );
+
+        const activeCompanies = (companies || []).filter(c => companiesWithActivity30Days.has(c.id));
+        const activationRate = (companies || []).length > 0
+            ? (activeCompanies.length / companies.length) * 100
+            : 0;
+
+        // 6. Transações Processadas no Mês
+        const monthTransactions = (allTransactions || []).filter(t => {
+            const tDate = new Date(t.purchase_date);
+            return tDate >= startOfMonth;
+        });
+
+        // 7. Taxa de Resgate Média
+        const totalCashback = (allTransactions || []).reduce((sum, t) => sum + (t.cashback_value || 0), 0);
+        const redeemedCashback = (allTransactions || [])
+            .filter(t => t.status === 'Resgatado')
+            .reduce((sum, t) => sum + Math.abs(t.cashback_value || 0), 0);
+        const redeemRate = totalCashback > 0 ? (redeemedCashback / totalCashback) * 100 : 0;
+
+        // 8. Novos Clientes no Mês
+        const newCompaniesThisMonth = (companies || []).filter(c => {
+            if (!c.created_at) return false;
+            const createdDate = new Date(c.created_at);
+            return createdDate >= startOfMonth;
+        });
+
+        // 9. MRR Growth (comparação com mês anterior)
+        const mrrGrowth = mrrLastMonth > 0 ? ((mrr - mrrLastMonth) / mrrLastMonth) * 100 : 0;
+
+        return {
+            mrr,
+            mrrGrowth,
+            arr,
+            starterClients,
+            starterRevenue,
+            growthClients,
+            growthRevenue,
+            totalClients: (companies || []).length,
+            activeClients: activeCompanies.length,
+            inactiveClients: inactiveCompanies.length,
+            inactiveCompaniesList: inactiveCompanies.map(c => ({
+                id: c.id,
+                name: c.name,
+                plan: c.plan,
+                totalCashbackGenerated: c.total_cashback_generated,
+                activeClients: c.active_clients
+            })),
+            activationRate,
+            monthTransactions: monthTransactions.length,
+            redeemRate,
+            newClientsThisMonth: newCompaniesThisMonth.length,
+            totalCashbackGenerated: totalCashback,
+            totalCashbackRedeemed: redeemedCashback,
+            // Mapa de atividade por empresa (para tabela)
+            companyActivity: (companies || []).map(c => {
+                const companyTransactions = (allTransactions || []).filter(t => t.company_id === c.id);
+                const lastTransaction = companyTransactions.length > 0
+                    ? new Date(Math.max(...companyTransactions.map(t => new Date(t.purchase_date).getTime())))
+                    : null;
+                const monthTrans = companyTransactions.filter(t => new Date(t.purchase_date) >= startOfMonth).length;
+
+                return {
+                    companyId: c.id,
+                    lastTransactionDate: lastTransaction,
+                    monthTransactionsCount: monthTrans,
+                    isActive: companiesWithActivity30Days.has(c.id)
+                };
+            })
+        };
+    },
+
     // 3. DADOS DO ADMINISTRADOR DA EMPRESA
     getAdminData: async (companyId: string) => {
         const { data: companyData } = await supabase.from('companies').select('*').eq('id', companyId).single();
@@ -183,6 +309,99 @@ export const api = {
             clients: companyClients,
             users: companyUsers
         }
+    },
+
+    // 3.1 MÉTRICAS DO DASHBOARD
+    getDashboardMetrics: async (companyId: string) => {
+        // Busca todas as transações da empresa
+        const { data: transactions } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('company_id', companyId);
+
+        if (!transactions || transactions.length === 0) {
+            return {
+                bonusGerado: 0,
+                ticketsGerados: 0,
+                valorVendas: 0,
+                bonusResgatado: 0,
+                ticketsResgatados: 0,
+                percentualResgatado: 0,
+                bonusPerdido: 0,
+                ticketsPerdidos: 0,
+                percentualPerdido: 0,
+                bonusAVencer: 0,
+                ticketsAVencer: 0,
+                transacoesPerdidas: [],
+                transacoesAVencer: []
+            };
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Zera horas para comparação correta
+
+        // 1. BÔNUS GERADO (todas as transações)
+        const bonusGerado = transactions.reduce((sum, t) => sum + (t.cashback_value || 0), 0);
+        const ticketsGerados = transactions.length;
+        const valorVendas = transactions.reduce((sum, t) => sum + (t.purchase_value || 0), 0);
+
+        // 2. BÔNUS RESGATADO (status = 'Resgatado')
+        const resgatados = transactions.filter(t => t.status === 'Resgatado');
+        const bonusResgatado = resgatados.reduce((sum, t) => sum + Math.abs(t.cashback_value || 0), 0);
+        const ticketsResgatados = resgatados.length;
+        const percentualResgatado = bonusGerado > 0 ? (bonusResgatado / bonusGerado) * 100 : 0;
+
+        // 3. BÔNUS PERDIDO (data de expiração já passou e status ainda é 'Disponível')
+        const perdidos = transactions.filter(t => {
+            if (!t.cashback_expiration_date || t.status !== 'Disponível') return false;
+            const expDate = new Date(t.cashback_expiration_date);
+            expDate.setHours(0, 0, 0, 0);
+            return expDate < today;
+        });
+        const bonusPerdido = perdidos.reduce((sum, t) => sum + (t.cashback_value || 0), 0);
+        const ticketsPerdidos = perdidos.length;
+        const percentualPerdido = bonusGerado > 0 ? (bonusPerdido / bonusGerado) * 100 : 0;
+
+        // 4. BÔNUS A VENCER (expira em até 30 dias e status 'Disponível')
+        const in30Days = new Date(today);
+        in30Days.setDate(today.getDate() + 30);
+
+        const aVencer = transactions.filter(t => {
+            if (!t.cashback_expiration_date || t.status !== 'Disponível') return false;
+            const expDate = new Date(t.cashback_expiration_date);
+            expDate.setHours(0, 0, 0, 0);
+            return expDate >= today && expDate <= in30Days;
+        });
+        const bonusAVencer = aVencer.reduce((sum, t) => sum + (t.cashback_value || 0), 0);
+        const ticketsAVencer = aVencer.length;
+
+        return {
+            bonusGerado,
+            ticketsGerados,
+            valorVendas,
+            bonusResgatado,
+            ticketsResgatados,
+            percentualResgatado,
+            bonusPerdido,
+            ticketsPerdidos,
+            percentualPerdido,
+            bonusAVencer,
+            ticketsAVencer,
+            transacoesPerdidas: perdidos.map(t => ({
+                id: t.id,
+                purchaseDate: t.purchase_date,
+                customerName: t.customer_name,
+                cashbackValue: t.cashback_value,
+                expirationDate: t.cashback_expiration_date
+            })),
+            transacoesAVencer: aVencer.map(t => ({
+                id: t.id,
+                purchaseDate: t.purchase_date,
+                customerName: t.customer_name,
+                cashbackValue: t.cashback_value,
+                expirationDate: t.cashback_expiration_date
+            }))
+        };
     },
 
     // 4. OPERAÇÕES DE ESCRITA
@@ -409,9 +628,168 @@ export const api = {
             }))
             .sort((a, b) => b.totalCashback - a.totalCashback);
     },
-    getCustomerRankingByPurchaseValue: async (companyId: string) => [],
-    getCustomerRankingByPurchaseCount: async (companyId: string) => [],
-    getCustomerRankingBySinglePurchase: async (companyId: string) => [],
+
+    getCustomerRankingByPurchaseValue: async (companyId: string) => {
+        // Busca todas as transações da empresa
+        const { data: transactions } = await supabase
+            .from('transactions')
+            .select('client_id, customer_name, purchase_value')
+            .eq('company_id', companyId)
+            .not('client_id', 'is', null);
+
+        if (!transactions) return [];
+
+        // Agrupa por cliente e soma valor total de compras
+        const clientMap: { [clientId: string]: { name: string; value: number } } = {};
+
+        transactions.forEach(t => {
+            if (!t.client_id) return;
+
+            if (!clientMap[t.client_id]) {
+                clientMap[t.client_id] = {
+                    name: t.customer_name || 'Cliente',
+                    value: 0
+                };
+            }
+
+            clientMap[t.client_id].value += t.purchase_value || 0;
+        });
+
+        // Converte para array e ordena
+        return Object.entries(clientMap)
+            .map(([id, data]) => ({
+                id,
+                name: data.name,
+                value: data.value
+            }))
+            .sort((a, b) => b.value - a.value);
+    },
+
+    getCustomerRankingByPurchaseCount: async (companyId: string) => {
+        // Busca todas as transações da empresa
+        const { data: transactions } = await supabase
+            .from('transactions')
+            .select('client_id, customer_name')
+            .eq('company_id', companyId)
+            .not('client_id', 'is', null);
+
+        if (!transactions) return [];
+
+        // Agrupa por cliente e conta número de compras
+        const clientMap: { [clientId: string]: { name: string; value: number } } = {};
+
+        transactions.forEach(t => {
+            if (!t.client_id) return;
+
+            if (!clientMap[t.client_id]) {
+                clientMap[t.client_id] = {
+                    name: t.customer_name || 'Cliente',
+                    value: 0
+                };
+            }
+
+            clientMap[t.client_id].value += 1;
+        });
+
+        // Converte para array e ordena
+        return Object.entries(clientMap)
+            .map(([id, data]) => ({
+                id,
+                name: data.name,
+                value: data.value
+            }))
+            .sort((a, b) => b.value - a.value);
+    },
+
+    getCustomerRankingBySinglePurchase: async (companyId: string) => {
+        // Busca todas as transações da empresa
+        const { data: transactions } = await supabase
+            .from('transactions')
+            .select('client_id, customer_name, purchase_value')
+            .eq('company_id', companyId)
+            .not('client_id', 'is', null);
+
+        if (!transactions) return [];
+
+        // Agrupa por cliente e pega a maior compra individual
+        const clientMap: { [clientId: string]: { name: string; value: number } } = {};
+
+        transactions.forEach(t => {
+            if (!t.client_id) return;
+
+            if (!clientMap[t.client_id]) {
+                clientMap[t.client_id] = {
+                    name: t.customer_name || 'Cliente',
+                    value: 0
+                };
+            }
+
+            // Pega o maior valor de compra
+            if ((t.purchase_value || 0) > clientMap[t.client_id].value) {
+                clientMap[t.client_id].value = t.purchase_value || 0;
+            }
+        });
+
+        // Converte para array e ordena
+        return Object.entries(clientMap)
+            .map(([id, data]) => ({
+                id,
+                name: data.name,
+                value: data.value
+            }))
+            .sort((a, b) => b.value - a.value);
+    },
+
+    // Busca inteligente de clientes (aceita nome, CPF ou telefone com/sem formatação)
+    searchClients: async (companyId: string, searchTerm: string) => {
+        if (!searchTerm || searchTerm.trim().length < 2) return [];
+
+        // Normaliza: remove pontos, traços, parênteses, espaços
+        const normalized = searchTerm.replace(/[.\-() ]/g, '');
+
+        try {
+            // Busca por nome (parcial, case insensitive), CPF ou telefone (normalizado em ambos os lados)
+            // Usamos REPLACE no SQL para normalizar CPF e telefone do banco antes de comparar
+            const { data, error } = await supabase
+                .from('clients')
+                .select('*')
+                .eq('company_id', companyId)
+                .or(`name.ilike.%${searchTerm}%,cpf.like.%${normalized}%,phone.like.%${normalized}%`)
+                .limit(10);
+
+            if (error) {
+                console.error("Error searching clients:", error);
+                return [];
+            }
+
+            // Filtra resultados localmente para garantir match exato em CPF/telefone normalizados
+            const filtered = (data || []).filter(c => {
+                const cpfNormalized = (c.cpf || '').replace(/[.\-() ]/g, '');
+                const phoneNormalized = (c.phone || '').replace(/[.\-() ]/g, '');
+                const nameMatch = c.name?.toLowerCase().includes(searchTerm.toLowerCase());
+                const cpfMatch = cpfNormalized.includes(normalized);
+                const phoneMatch = phoneNormalized.includes(normalized);
+
+                return nameMatch || cpfMatch || phoneMatch;
+            });
+
+            return filtered.map(c => ({
+                id: c.id,
+                companyId: c.company_id,
+                name: c.name,
+                cpf: c.cpf,
+                phone: c.phone,
+                email: c.email,
+                lastPurchase: c.last_purchase,
+                totalCashback: c.total_cashback,
+                status: c.status as Client['status'],
+                points: c.points,
+            })) as Client[];
+        } catch (error) {
+            console.error("Exception searching clients:", error);
+            return [];
+        }
+    },
 
     findClientByPhoneOrCpf: async (companyId: string, identifier: string) => {
         // Busca por CPF ou telefone
@@ -472,4 +850,216 @@ export const api = {
 
         return !transError;
     },
+
+    // EVOLUTION API - WhatsApp Connection
+    evolution: {
+        // Configuração da Evolution API (usar variáveis de ambiente)
+        getConfig: (companyId?: string) => {
+            const baseUrl = import.meta.env.VITE_EVOLUTION_API_URL || 'http://localhost:8080';
+            const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY || '';
+            const prefix = import.meta.env.VITE_WHATSAPP_INSTANCE_PREFIX || 'moneyback';
+            // Se tiver companyId, usa moneyback-{id}, senão usa moneyback-default
+            const instanceName = companyId ? `${prefix}-${companyId}` : `${prefix}-default`;
+
+            return { apiUrl: baseUrl, apiKey, instanceName };
+        },
+
+        // Criar instância WhatsApp
+        createInstance: async (companyId?: string) => {
+            const config = api.evolution.getConfig(companyId);
+            console.log(`[Evolution] Creating instance: ${config.instanceName} at ${config.apiUrl}`);
+
+            try {
+                const response = await fetch(`${config.apiUrl}/instance/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': config.apiKey
+                    },
+                    body: JSON.stringify({
+                        instanceName: config.instanceName,
+                        integration: 'WHATSAPP-BAILEYS',
+                        qrcode: true
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    // Se o erro for que a instância já existe, não é um erro fatal
+                    if (response.status === 403 || (data.error && data.error.includes('already exists'))) {
+                        console.log('[Evolution] Instance already exists (handled)');
+                        return data;
+                    }
+                    console.error('[Evolution] Create error:', data);
+                    throw new Error(data.message || data.error || `HTTP error! status: ${response.status}`);
+                }
+
+                return data;
+            } catch (error) {
+                console.error('[Evolution] Error creating instance:', error);
+                throw error;
+            }
+        },
+
+        // Obter QR Code para conexão
+        getQRCode: async (companyId?: string) => {
+            const config = api.evolution.getConfig(companyId);
+            console.log(`[Evolution] Fetching QR Code for: ${config.instanceName}`);
+
+            try {
+                const response = await fetch(
+                    `${config.apiUrl}/instance/connect/${config.instanceName}`,
+                    {
+                        headers: { 'apikey': config.apiKey }
+                    }
+                );
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[Evolution] GetQR error:', response.status, errorText);
+                    throw new Error(`Failed to get QR Code: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.code && !data.base64) {
+                    console.error('[Evolution] Invalid QR response:', data);
+                    throw new Error('QR Code data not found in response');
+                }
+
+                // Suporte para diferentes formatos de resposta da Evolution (v1/v2)
+                const base64 = data.code || data.base64;
+
+                return {
+                    code: base64,
+                    pairingCode: data.pairingCode,
+                    count: data.count
+                };
+            } catch (error) {
+                console.error('[Evolution] Error getting QR code:', error);
+                throw error;
+            }
+        },
+
+        // Verificar status da conexão
+        getConnectionStatus: async (companyId?: string) => {
+            const config = api.evolution.getConfig(companyId);
+
+            try {
+                const response = await fetch(
+                    `${config.apiUrl}/instance/connectionState/${config.instanceName}`,
+                    {
+                        headers: { 'apikey': config.apiKey }
+                    }
+                );
+
+                if (!response.ok) {
+                    // Se instância não existe, retorna desconectado
+                    if (response.status === 404) {
+                        return {
+                            state: 'close',
+                            statusReason: 'Instance not found'
+                        };
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                return {
+                    state: data.instance?.state || 'close',
+                    statusReason: data.instance?.statusReason
+                };
+            } catch (error) {
+                console.error('Error getting connection status:', error);
+                return { state: 'close', statusReason: 'Error' };
+            }
+        },
+
+        // Obter informações da instância
+        getInstanceInfo: async (companyId?: string) => {
+            const config = api.evolution.getConfig(companyId);
+
+            try {
+                const response = await fetch(
+                    `${config.apiUrl}/instance/fetchInstances?instanceName=${config.instanceName}`,
+                    {
+                        headers: { 'apikey': config.apiKey }
+                    }
+                );
+
+                if (!response.ok) {
+                    return null;
+                }
+
+                const data = await response.json();
+                return data[0] || null;
+            } catch (error) {
+                console.error('Error getting instance info:', error);
+                return null;
+            }
+        },
+
+        // Desconectar WhatsApp (deleta a instância completamente)
+        disconnect: async (companyId?: string) => {
+            const config = api.evolution.getConfig(companyId);
+
+            try {
+                // Primeiro tenta fazer logout
+                try {
+                    await fetch(
+                        `${config.apiUrl}/instance/logout/${config.instanceName}`,
+                        {
+                            method: 'DELETE',
+                            headers: { 'apikey': config.apiKey }
+                        }
+                    );
+                } catch (logoutError) {
+                    console.log('[Evolution] Logout attempt:', logoutError);
+                }
+
+                // Depois deleta a instância completamente
+                const response = await fetch(
+                    `${config.apiUrl}/instance/delete/${config.instanceName}`,
+                    {
+                        method: 'DELETE',
+                        headers: { 'apikey': config.apiKey }
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('Error disconnecting:', error);
+                throw error;
+            }
+        },
+
+        // Deletar instância
+        deleteInstance: async (companyId?: string) => {
+            const config = api.evolution.getConfig(companyId);
+
+            try {
+                const response = await fetch(
+                    `${config.apiUrl}/instance/delete/${config.instanceName}`,
+                    {
+                        method: 'DELETE',
+                        headers: { 'apikey': config.apiKey }
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('Error deleting instance:', error);
+                throw error;
+            }
+        }
+    }
 };

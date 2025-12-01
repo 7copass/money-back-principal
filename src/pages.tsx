@@ -381,9 +381,8 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
         const cashbackPercentage = parseFloat(data.cashbackPercentage as string);
         const cashbackValue = (purchaseValue * cashbackPercentage) / 100;
 
-        const today = new Date();
-        const expirationDate = new Date();
-        expirationDate.setDate(today.getDate() + 30);
+        const today = new Date().toISOString().split('T')[0];
+
 
         await api.addTransaction(user.companyId, {
             customerName: data.name as string,
@@ -393,8 +392,8 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
             purchaseValue: purchaseValue,
             cashbackPercentage: cashbackPercentage,
             cashbackValue: cashbackValue,
-            purchaseDate: today.toISOString().split('T')[0],
-            cashbackExpirationDate: expirationDate.toISOString().split('T')[0],
+            purchaseDate: today,
+            cashbackExpirationDate: data.expirationDate as string,
             status: 'Disponível',
             sellerId: user.id,
             sellerName: user.name,
@@ -463,6 +462,22 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                             <label className="block text-gray-700 mb-1" htmlFor="cashbackPercentage">% de Cashback</label>
                             <Input name="cashbackPercentage" id="cashbackPercentage" type="number" required />
                         </div>
+                    </div>
+                    <div>
+                        <label className="block text-gray-700 mb-1" htmlFor="expirationDate">
+                            Data de Validade do Cashback <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                            name="expirationDate"
+                            id="expirationDate"
+                            type="date"
+                            min={new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0]}
+                            defaultValue={new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]}
+                            required
+                        />
+                        <p className="text-sm text-gray-500 mt-1">
+                            Defina até quando o cliente poderá usar este cashback
+                        </p>
                     </div>
                     <div className="pt-4">
                         <Button type="submit" className="w-full" disabled={loading}>
