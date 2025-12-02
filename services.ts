@@ -358,19 +358,20 @@ export const api = {
             expDate.setHours(0, 0, 0, 0);
             return expDate < today;
         });
+
         const bonusPerdido = perdidos.reduce((sum, t) => sum + (t.cashback_value || 0), 0);
         const ticketsPerdidos = perdidos.length;
         const percentualPerdido = bonusGerado > 0 ? (bonusPerdido / bonusGerado) * 100 : 0;
 
-        // 4. BÔNUS A VENCER (expira em até 30 dias e status 'Disponível')
-        const in30Days = new Date(today);
-        in30Days.setDate(today.getDate() + 30);
+        // 4. BÔNUS A VENCER (expira em até 60 dias e status 'Disponível')
+        const in60Days = new Date(today);
+        in60Days.setDate(today.getDate() + 60);
 
         const aVencer = transactions.filter(t => {
             if (!t.cashback_expiration_date || t.status !== 'Disponível') return false;
             const expDate = new Date(t.cashback_expiration_date);
             expDate.setHours(0, 0, 0, 0);
-            return expDate >= today && expDate <= in30Days;
+            return expDate >= today && expDate <= in60Days;
         });
         const bonusAVencer = aVencer.reduce((sum, t) => sum + (t.cashback_value || 0), 0);
         const ticketsAVencer = aVencer.length;
@@ -423,7 +424,7 @@ export const api = {
             transacoesAVencer: aVencer.map(t => {
                 const expDate = new Date(t.cashback_expiration_date);
                 expDate.setHours(0, 0, 0, 0);
-                const diffTime = Math.abs(expDate.getTime() - today.getTime());
+                const diffTime = expDate.getTime() - today.getTime();
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
                 return {
@@ -439,7 +440,7 @@ export const api = {
         };
     },
 
-    // 4. OPERAÇÕES DE ESCRITA
+    // 4. OPERAÇÕES DE ESCRITA (WRITE)
     addCompany: async (companyData: any) => {
         // Mapeamento explícito para garantir snake_case e evitar envio de campos extras
         const payload = {
@@ -1154,6 +1155,369 @@ export const api = {
                 return await response.json();
             } catch (error) {
                 console.error('Error deleting instance:', error);
+                throw error;
+            }
+        }
+    },
+
+    // NOTIFICATION SERVICES
+    notifications: {
+        // Get notification templates for a company
+        getTemplates: async (companyId: string) => {
+            const { data, error } = await supabase
+                .from('notification_templates')
+                .select('*')
+                .eq('company_id', companyId)
+                .order('notification_type');
+
+            if (error) throw error;
+            return data || [];
+        },
+
+        // Update notification template
+        updateTemplate: async (companyId: string, notificationType: string, template: string, isActive: boolean, scheduleHour?: number) => {
+            const payload: any = {
+                company_id: companyId,
+                notification_type: notificationType,
+                message_template: template,
+                is_active: isActive,
+                updated_at: new Date().toISOString()
+            };
+
+            if (scheduleHour !== undefined) {
+                payload.schedule_hour = scheduleHour;
+            }
+
+            const { data, error } = await supabase
+                .from('notification_templates')
+                .upsert(payload, {
+                    onConflict: 'company_id,notification_type'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        },
+
+        // Replace variables in template
+        replaceVariables: (template: string, variables: any) => {
+            let message = template;
+            Object.keys(variables).forEach(key => {
+                message = message.replace(new RegExp(`{${key}}`, 'g'), variables[key]);
+            });
+            return message;
+        },
+
+        // Send WhatsApp notification via Evolution API
+        sendWhatsAppNotification: async (phone: string, message: string, companyId?: string) => {
+            const config = api.evolution.getConfig(companyId);
+
+            try {
+                // Format phone number (remove special characters and ensure country code)
+                let cleanPhone = phone.replace(/\D/g, '');
+
+                // Add country code (55) if not present
+                if (!cleanPhone.startsWith('55')) {
+                    cleanPhone = '55' + cleanPhone;
+                }
+
+                const response = await fetch(
+                    `${config.apiUrl}/message/sendText/${config.instanceName}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': config.apiKey
+                        },
+                        body: JSON.stringify({
+                            number: cleanPhone,
+                            text: message
+                        })
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('Error sending WhatsApp notification:', error);
+                throw error;
+            }
+        },
+
+        // Log notification
+        logNotification: async (
+            companyId: string,
+            clientId: string,
+            transactionId: string,
+            notificationType: string,
+            status: 'sent' | 'failed',
+            errorMessage?: string
+        ) => {
+            const { data, error } = await supabase
+                .from('notification_log')
+                .insert({
+                    company_id: companyId,
+                    client_id: clientId,
+                    transaction_id: transactionId,
+                    notification_type: notificationType,
+                    status: status,
+                    error_message: errorMessage
+                })
+                .select()
+                .single();
+
+            if (error && error.code !== '23505') { // Ignore duplicate error
+                console.error('Error logging notification:', error);
+            }
+            return data;
+        },
+
+        // Check if notification already sent
+        isNotificationSent: async (transactionId: string, notificationType: string) => {
+            const { data, error } = await supabase
+                .from('notification_log')
+                .select('id')
+                .eq('transaction_id', transactionId)
+                .eq('notification_type', notificationType)
+                .single();
+
+            return !!data;
+        },
+
+        // Get notification history
+        getNotificationHistory: async (companyId: string, limit: number = 100) => {
+            const { data, error } = await supabase
+                .from('notification_log')
+                .select(`
+                    *,
+                    clients!inner(name, phone),
+                    transactions!inner(cashback_value, cashback_expiration_date)
+                `)
+                .eq('company_id', companyId)
+                .order('sent_at', { ascending: false })
+                .limit(limit);
+
+            if (error) throw error;
+            return data || [];
+        },
+
+        // Get notification settings for a company
+        getSettings: async (companyId: string) => {
+            const { data, error } = await supabase
+                .from('companies')
+                .select('notifications_enabled, notification_delay_min, notification_delay_max, notification_schedule_hour')
+                .eq('id', companyId)
+                .single();
+
+            if (error) throw error;
+            return data || {
+                notifications_enabled: true,
+                notification_delay_min: 30,
+                notification_delay_max: 60,
+                notification_schedule_hour: 9
+            };
+        },
+
+        // Update notification settings
+        updateSettings: async (companyId: string, settings: any) => {
+            const { data, error } = await supabase
+                .from('companies')
+                .update({
+                    notifications_enabled: settings.enabled,
+                    notification_delay_min: settings.delayMin,
+                    notification_delay_max: settings.delayMax,
+                    notification_schedule_hour: settings.scheduleHour
+                })
+                .eq('id', companyId)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        },
+
+        // Sleep utility for delays
+        sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
+
+        // Get random delay in milliseconds
+        getRandomDelay: (minSeconds: number, maxSeconds: number) => {
+            const min = minSeconds * 1000;
+            const max = maxSeconds * 1000;
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        },
+
+
+        // Process expiration notifications for a company
+        processExpirationNotifications: async (companyId: string) => {
+            try {
+                // Get active templates
+                const templates = await api.notifications.getTemplates(companyId);
+                const activeTemplates = templates.filter(t => t.is_active);
+
+                if (activeTemplates.length === 0) {
+                    console.log('No active templates for company:', companyId);
+                    return { processed: 0, sent: 0, errors: 0 };
+                }
+
+                // Get notification settings
+                const settings = await api.notifications.getSettings(companyId);
+
+                if (!settings.notifications_enabled) {
+                    console.log('Notifications disabled for company:', companyId);
+                    return { processed: 0, sent: 0, errors: 0, disabled: true };
+                }
+
+                // Check schedule hour
+                if (settings.notification_schedule_hour !== undefined && settings.notification_schedule_hour !== null) {
+                    const currentHour = new Date().getHours();
+                    if (currentHour !== settings.notification_schedule_hour) {
+                        console.log(`Skipping notifications: Scheduled for ${settings.notification_schedule_hour}h, current is ${currentHour}h`);
+                        return { processed: 0, sent: 0, errors: 0, skipped: true };
+                    }
+                }
+
+                // Get company info
+                const { data: company } = await supabase
+                    .from('companies')
+                    .select('name')
+                    .eq('id', companyId)
+                    .single();
+
+                // Get all available cashback transactions
+                const { data: transactions, error: transError } = await supabase
+                    .from('transactions')
+                    .select(`
+                        *,
+                        clients!inner(*)
+                    `)
+                    .eq('company_id', companyId)
+                    .eq('status', 'Disponível')
+                    .not('cashback_expiration_date', 'is', null);
+
+                if (transError) throw transError;
+                if (!transactions || transactions.length === 0) {
+                    return { processed: 0, sent: 0, errors: 0 };
+                }
+
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                let processed = 0;
+                let sent = 0;
+                let errors = 0;
+
+                // Process each transaction
+                for (const transaction of transactions) {
+                    const expirationDate = new Date(transaction.cashback_expiration_date);
+                    expirationDate.setHours(0, 0, 0, 0);
+
+                    const daysUntilExpiration = Math.ceil((expirationDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+                    // Determine notification type
+                    let notificationType = null;
+                    if (daysUntilExpiration === 7) notificationType = 'expiration_7d';
+                    else if (daysUntilExpiration === 5) notificationType = 'expiration_5d';
+                    else if (daysUntilExpiration === 3) notificationType = 'expiration_3d';
+                    else if (daysUntilExpiration === 2) notificationType = 'expiration_2d';
+                    else if (daysUntilExpiration === 0) notificationType = 'expiration_today';
+
+                    if (!notificationType) continue;
+
+                    // Check if already sent
+                    const alreadySent = await api.notifications.isNotificationSent(
+                        transaction.id,
+                        notificationType
+                    );
+
+                    if (alreadySent) continue;
+
+                    // Get template
+                    const template = activeTemplates.find(t => t.notification_type === notificationType);
+                    if (!template) continue;
+
+                    // Check template-specific schedule hour
+                    if (template.schedule_hour !== undefined && template.schedule_hour !== null) {
+                        const currentHour = new Date().getHours();
+                        if (currentHour !== template.schedule_hour) {
+                            console.log(`Skipping ${notificationType}: Scheduled for ${template.schedule_hour}h, current is ${currentHour}h`);
+                            continue;
+                        }
+                    }
+
+                    processed++;
+
+                    // Check if client has phone
+                    const client = transaction.clients;
+                    if (!client || !client.phone) {
+                        await api.notifications.logNotification(
+                            companyId,
+                            client?.id || transaction.client_id,
+                            transaction.id,
+                            notificationType,
+                            'failed',
+                            'Client phone not found'
+                        );
+                        errors++;
+                        continue;
+                    }
+
+                    // Replace variables
+                    const message = api.notifications.replaceVariables(template.message_template, {
+                        cliente_nome: client.name,
+                        cliente_cpf: client.cpf || '',
+                        cashback_valor: transaction.cashback_value.toFixed(2),
+                        dias_restantes: daysUntilExpiration.toString(),
+                        data_vencimento: new Date(transaction.cashback_expiration_date).toLocaleDateString('pt-BR'),
+                        empresa_nome: company?.name || ''
+                    });
+
+                    // Send notification
+                    try {
+                        await api.notifications.sendWhatsAppNotification(
+                            client.phone,
+                            message,
+                            companyId
+                        );
+
+                        await api.notifications.logNotification(
+                            companyId,
+                            client.id,
+                            transaction.id,
+                            notificationType,
+                            'sent'
+                        );
+
+                        sent++;
+
+                        // Add random delay before next message to prevent blocks
+                        if (sent < processed) { // Don't delay after the last message
+                            const delay = api.notifications.getRandomDelay(
+                                settings.notification_delay_min || 30,
+                                settings.notification_delay_max || 60
+                            );
+                            console.log(`Waiting ${delay / 1000}s before next message...`);
+                            await api.notifications.sleep(delay);
+                        }
+                    } catch (error: any) {
+                        await api.notifications.logNotification(
+                            companyId,
+                            client.id,
+                            transaction.id,
+                            notificationType,
+                            'failed',
+                            error.message
+                        );
+                        errors++;
+                    }
+                }
+
+                return { processed, sent, errors };
+            } catch (error) {
+                console.error('Error processing notifications:', error);
                 throw error;
             }
         }

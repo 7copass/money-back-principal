@@ -111,6 +111,40 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
+// Notification Scheduler Component
+const NotificationScheduler: React.FC<{ user: User | null }> = ({ user }) => {
+    useEffect(() => {
+        if (!user || user.role !== UserRole.ADM || !user.companyId) {
+            return;
+        }
+
+        console.log('[Scheduler] Starting notification scheduler for company:', user.companyId);
+
+        // Run immediately on mount
+        const processNotifications = async () => {
+            try {
+                console.log('[Scheduler] Processing notifications...');
+                const result = await api.notifications.processExpirationNotifications(user.companyId!);
+                console.log('[Scheduler] Result:', result);
+            } catch (error) {
+                console.error('[Scheduler] Error processing notifications:', error);
+            }
+        };
+
+        // Initial run
+        processNotifications();
+
+        // Run every hour
+        const interval = setInterval(processNotifications, 60 * 60 * 1000); // 1 hour
+
+        return () => {
+            console.log('[Scheduler] Stopping notification scheduler');
+            clearInterval(interval);
+        };
+    }, [user]);
+
+    return null; // This component doesn't render anything
+};
 
 const AppContent: React.FC = () => {
     const { user, loading, logout } = useAuth();
@@ -159,7 +193,12 @@ const AppContent: React.FC = () => {
         return <LoginPage />;
     }
 
-    return <DashboardLayout user={user} currentPage={currentPage} onNavigate={setCurrentPage} />;
+    return (
+        <>
+            <NotificationScheduler user={user} />
+            <DashboardLayout user={user} currentPage={currentPage} onNavigate={setCurrentPage} />
+        </>
+    );
 };
 
 const pageTitles: { [key: string]: string } = {

@@ -3,6 +3,7 @@ import type { User, Company, Transaction, Campaign, Client, Product } from './ty
 import { UserRole, CompanyPlan, AreaOfActivity } from './types';
 import { api } from './services';
 import { Button, Card, Icons, Input, StatCard, CompanyTable, SalesChart, ClientRanking, TransactionHistory, CampaignCard, Modal, ConfirmationModal, Textarea, Podium, Select } from './components';
+import { NotificationHistoryTab } from './NotificationHistoryTab';
 
 // LOGIN PAGE
 export const LoginPage: React.FC = () => {
@@ -288,8 +289,333 @@ const ManagerDashboard: React.FC<{ user: User }> = ({ user }) => {
     );
 };
 
+// Notification Templates Section Component
+const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ companyId }) => {
+    const [templates, setTemplates] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState<string | null>(null);
+    const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+    const [editedText, setEditedText] = useState('');
+    const [editedScheduleHour, setEditedScheduleHour] = useState<number>(9);
+    const [processingNotifications, setProcessingNotifications] = useState(false);
+    const [processResult, setProcessResult] = useState<any>(null);
+
+    // Settings state
+    const [settings, setSettings] = useState<any>(null);
+    const [savingSettings, setSavingSettings] = useState(false);
+
+
+    const templateLabels: Record<string, string> = {
+        'expiration_7d': '7 Dias Antes',
+        'expiration_5d': '5 Dias Antes',
+        'expiration_3d': '3 Dias Antes',
+        'expiration_2d': '2 Dias Antes',
+        'expiration_today': 'No Dia do Vencimento'
+    };
+
+    const availableVariables = [
+        { key: '{cliente_nome}', description: 'Nome do cliente' },
+        { key: '{cliente_cpf}', description: 'CPF do cliente' },
+        { key: '{cashback_valor}', description: 'Valor do cashback' },
+        { key: '{dias_restantes}', description: 'Dias até vencer' },
+        { key: '{data_vencimento}', description: 'Data de vencimento' },
+        { key: '{empresa_nome}', description: 'Nome da empresa' }
+    ];
+
+    useEffect(() => {
+        loadTemplates();
+        loadSettings();
+    }, [companyId]);
+
+    const loadSettings = async () => {
+        try {
+            const data = await api.notifications.getSettings(companyId);
+            setSettings(data);
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    };
+
+    const loadTemplates = async () => {
+        console.log('Loading templates for company:', companyId);
+        try {
+            const data = await api.notifications.getTemplates(companyId);
+            console.log('Templates loaded:', data);
+            setTemplates(data);
+        } catch (error) {
+            console.error('Error loading templates:', error);
+        } finally {
+            console.log('Finished loading templates');
+            setLoading(false);
+        }
+    };
+
+    const handleSave = async (notificationType: string, template: string, isActive: boolean, scheduleHour?: number) => {
+        setSaving(notificationType);
+        try {
+            await api.notifications.updateTemplate(companyId, notificationType, template, isActive, scheduleHour);
+            await loadTemplates();
+            setEditingTemplate(null);
+        } catch (error) {
+            console.error('Error saving template:', error);
+            alert('Erro ao salvar template');
+        } finally {
+            setSaving(null);
+        }
+    };
+
+    const handleToggleActive = async (template: any) => {
+        await handleSave(template.notification_type, template.message_template, !template.is_active, template.schedule_hour ?? 9);
+    };
+
+    const handleProcessNotifications = async () => {
+        setProcessingNotifications(true);
+        setProcessResult(null);
+        try {
+            const result = await api.notifications.processExpirationNotifications(companyId);
+            setProcessResult(result);
+        } catch (error: any) {
+            console.error('Error processing notifications:', error);
+            alert(`Erro ao processar notificações: ${error.message}`);
+        } finally {
+            setProcessingNotifications(false);
+        }
+    };
+
+    const handleSaveSettings = async () => {
+        if (!settings) return;
+
+        setSavingSettings(true);
+        try {
+            await api.notifications.updateSettings(companyId, {
+                enabled: settings.notifications_enabled,
+                delayMin: settings.notification_delay_min,
+                delayMax: settings.notification_delay_max,
+                scheduleHour: settings.notification_schedule_hour
+            });
+            alert('Configurações salvas com sucesso!');
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            alert('Erro ao salvar configurações');
+        } finally {
+            setSavingSettings(false);
+        }
+    };
+
+    const insertVariable = (variable: string) => {
+        if (editingTemplate) {
+            setEditedText(prev => prev + variable);
+        }
+    };
+
+    return (
+        <Card className="p-6">
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                    <h3 className="text-xl font-bold text-gray-800">🔔 Notificações Automáticas</h3>
+                    <p className="text-sm text-gray-600 mt-1">Configure as mensagens que serão enviadas aos clientes antes do vencimento do cashback</p>
+                </div>
+                <Button
+                    onClick={handleProcessNotifications}
+                    disabled={processingNotifications}
+                    className="bg-blue-600 hover:bg-blue-700"
+                >
+                    {processingNotifications ? 'Processando...' : '🚀 Processar Agora'}
+                </Button>
+            </div>
+
+            {processResult && (
+                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm font-semibold text-blue-900">Resultado do Processamento:</p>
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                        <div className="text-gray-700"><strong>Processados:</strong> {processResult.processed}</div>
+                        <div className="text-green-700"><strong>Enviados:</strong> {processResult.sent}</div>
+                        <div className="text-red-700"><strong>Erros:</strong> {processResult.errors}</div>
+                    </div>
+                </div>
+            )}
+
+            {/* Settings Section */}
+            {settings && (
+                <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <h4 className="font-semibold text-gray-800 mb-4">⚙️ Configurações de Envio</h4>
+
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-gray-700">Notificações Automáticas</label>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={settings.notifications_enabled}
+                                    onChange={(e) => setSettings({ ...settings, notifications_enabled: e.target.checked })}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                            </label>
+                        </div>
+
+                        {settings.notifications_enabled && (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Envio (Hora)</label>
+                                    <Input
+                                        type="number"
+                                        value={settings.notification_schedule_hour}
+                                        onChange={(e) => setSettings({ ...settings, notification_schedule_hour: parseInt(e.target.value) })}
+                                        min="0"
+                                        max="23"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Hora do dia para iniciar (0-23)</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Delay Mínimo (segundos)</label>
+                                    <Input
+                                        type="number"
+                                        value={settings.notification_delay_min}
+                                        onChange={(e) => setSettings({ ...settings, notification_delay_min: parseInt(e.target.value) })}
+                                        min="10"
+                                        max="120"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Tempo mínimo entre envios</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Delay Máximo (segundos)</label>
+                                    <Input
+                                        type="number"
+                                        value={settings.notification_delay_max}
+                                        onChange={(e) => setSettings({ ...settings, notification_delay_max: parseInt(e.target.value) })}
+                                        min="10"
+                                        max="120"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Tempo máximo entre envios</p>
+                                </div>
+                            </div>
+                        )}
+
+                        <Button
+                            onClick={handleSaveSettings}
+                            disabled={savingSettings}
+                            className="bg-green-600 hover:bg-green-700 w-full"
+                        >
+                            {savingSettings ? 'Salvando...' : 'Salvar Configurações'}
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {loading ? (
+                <div className="text-center py-8 text-gray-500">Carregando templates...</div>
+            ) : (
+                <div className="space-y-4">
+                    {templates.map((template) => (
+                        <div key={template.notification_type} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={template.is_active}
+                                            onChange={() => handleToggleActive(template)}
+                                            className="sr-only peer"
+                                        />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                    <h4 className="font-semibold text-gray-800">{templateLabels[template.notification_type]}</h4>
+                                    {!template.is_active && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">Desativado</span>}
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        if (editingTemplate === template.notification_type) {
+                                            setEditingTemplate(null);
+                                        } else {
+                                            setEditingTemplate(template.notification_type);
+                                            setEditedText(template.message_template);
+                                            setEditedScheduleHour(template.schedule_hour ?? 9);
+                                        }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                >
+                                    {editingTemplate === template.notification_type ? 'Cancelar' : 'Editar'}
+                                </button>
+                            </div>
+
+                            {editingTemplate === template.notification_type ? (
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Mensagem:</label>
+                                        <textarea
+                                            value={editedText}
+                                            onChange={(e) => setEditedText(e.target.value)}
+                                            rows={4}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-700 mb-2">Variáveis disponíveis (clique para inserir):</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {availableVariables.map((v) => (
+                                                <button
+                                                    key={v.key}
+                                                    onClick={() => insertVariable(v.key)}
+                                                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono border border-gray-300"
+                                                    title={v.description}
+                                                >
+                                                    {v.key}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Envio (Hora):</label>
+                                        <Input
+                                            type="number"
+                                            value={editedScheduleHour}
+                                            onChange={(e) => setEditedScheduleHour(parseInt(e.target.value))}
+                                            min="0"
+                                            max="23"
+                                            className="w-32"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Hora do dia (0-23) para enviar esta notificação</p>
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <Button
+                                            onClick={() => handleSave(template.notification_type, editedText, template.is_active, editedScheduleHour)}
+                                            disabled={saving === template.notification_type}
+                                            className="bg-green-600 hover:bg-green-700"
+                                        >
+                                            {saving === template.notification_type ? 'Salvando...' : 'Salvar'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-2 bg-gray-50 p-3 rounded border border-gray-200">
+                                    <div className="text-sm text-gray-700 whitespace-pre-wrap">{template.message_template}</div>
+                                    <div className="text-xs text-gray-500">
+                                        ⏰ Horário: {template.schedule_hour ?? 9}:00
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                    <strong>💡 Dica:</strong> As notificações são enviadas automaticamente quando você clica em "Processar Agora".
+                    Configure cada template e ative apenas os períodos que deseja notificar os clientes.
+                </p>
+            </div>
+        </Card>
+    );
+};
+
 // WHATSAPP CONNECTION PAGE
 const WhatsAppConnectionPage: React.FC<{ user: User }> = ({ user }) => {
+    const [activeTab, setActiveTab] = useState<'connection' | 'history'>('connection');
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [isConnected, setIsConnected] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -453,163 +779,201 @@ const WhatsAppConnectionPage: React.FC<{ user: User }> = ({ user }) => {
     };
 
     return (
-        <main className="p-4 sm:p-6 space-y-6 max-w-2xl mx-auto">
-            <h2 className="text-2xl font-bold">Conexão WhatsApp</h2>
+        <main className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
+            <div>
+                <h2 className="text-2xl font-bold mb-4">WhatsApp</h2>
 
-            {error && (
-                <Card className="p-4 bg-red-50 border-red-200">
-                    <p className="text-red-700 text-sm">⚠️ {error}</p>
-                    <p className="text-red-600 text-xs mt-2">
-                        Configure as variáveis de ambiente: VITE_EVOLUTION_API_URL e VITE_EVOLUTION_API_KEY
-                    </p>
-                </Card>
-            )}
-
-            {isChecking ? (
-                <Card className="p-12 flex flex-col items-center justify-center text-gray-500">
-                    <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-                    <p>Verificando status da conexão...</p>
-                </Card>
-            ) : isConnected ? (
-                <Card className="p-6 bg-green-50 border-green-200">
-                    <div className="flex items-center justify-between mb-6">
-                        <div className="flex items-center gap-3">
-                            <div className="relative">
-                                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center border-2 border-green-500">
-                                    <Icons.MessageSquare className="w-6 h-6 text-green-600" />
-                                </div>
-                                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-green-900 text-lg">WhatsApp Conectado</h3>
-                                {connectionInfo && connectionInfo.ownerJid ? (
-                                    <p className="text-green-700 text-sm font-mono">
-                                        {connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4')}
-                                    </p>
-                                ) : (
-                                    <p className="text-green-700 text-sm">Sessão ativa e pronta para uso</p>
-                                )}
-                            </div>
-                        </div>
-                        <Button
-                            onClick={handleDisconnectClick}
-                            className="bg-white text-red-600 border border-red-200 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                {/* Tab Navigation */}
+                <div className="border-b border-gray-200 mb-6">
+                    <nav className="-mb-px flex space-x-8">
+                        <button
+                            onClick={() => setActiveTab('connection')}
+                            className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'connection'
+                                ? 'border-brand-primary text-brand-primary'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                }`}
                         >
-                            Desconectar
-                        </Button>
-                    </div>
+                            🔌 Conexão
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('history')}
+                            className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'history'
+                                ? 'border-brand-primary text-brand-primary'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                }`}
+                        >
+                            📋 Histórico de Envios
+                        </button>
+                    </nav>
+                </div>
+            </div>
 
-                    {connectionInfo && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                            <div className="bg-white p-4 rounded-lg border border-green-100 shadow-sm">
-                                <span className="text-gray-500 text-xs font-bold uppercase tracking-wider block mb-1">Nome do Perfil</span>
-                                {isEditingProfileName ? (
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="text"
-                                            value={editedProfileName}
-                                            onChange={(e) => setEditedProfileName(e.target.value)}
-                                            className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
-                                            placeholder="Digite o nome"
-                                            autoFocus
-                                        />
-                                        <button
-                                            onClick={() => {
-                                                if (editedProfileName.trim()) {
-                                                    const newName = editedProfileName.trim();
-                                                    setConnectionInfo({ ...connectionInfo, profileName: newName });
-                                                    // Salva no localStorage
-                                                    localStorage.setItem(`whatsapp_profile_name_${user.companyId}`, newName);
-                                                }
-                                                setIsEditingProfileName(false);
-                                            }}
-                                            className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
-                                        >
-                                            ✓
-                                        </button>
-                                        <button
-                                            onClick={() => setIsEditingProfileName(false)}
-                                            className="px-2 py-1 bg-gray-300 text-gray-700 rounded text-xs hover:bg-gray-400"
-                                        >
-                                            ✕
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center justify-between">
-                                        <p className="font-semibold text-gray-800 text-lg">
-                                            {connectionInfo.profileName?.trim() || (connectionInfo.ownerJid ? connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4') : 'Não identificado')}
-                                        </p>
-                                        <button
-                                            onClick={() => {
-                                                setEditedProfileName(connectionInfo.profileName?.trim() || '');
-                                                setIsEditingProfileName(true);
-                                            }}
-                                            className="ml-2 text-gray-400 hover:text-gray-600"
-                                            title="Editar nome"
-                                        >
-                                            <Icons.Edit className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="bg-white p-4 rounded-lg border border-green-100 shadow-sm">
-                                <span className="text-gray-500 text-xs font-bold uppercase tracking-wider block mb-1">Número Conectado</span>
-                                <p className="font-mono text-gray-800 text-lg">
-                                    {connectionInfo.ownerJid ? connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4') : 'N/A'}
-                                </p>
-                            </div>
-                        </div>
-                    )}
-                </Card>
+            {/* Tab Content */}
+            {activeTab === 'history' ? (
+                <NotificationHistoryTab companyId={user.companyId || ''} />
             ) : (
-                <Card className="p-6 bg-gray-900 text-white">
-                    {!qrCode ? (
-                        <div className="text-center space-y-4">
-                            <h3 className="text-lg font-semibold text-blue-300">
-                                Leia o QR Code no seu Dispositivo
-                            </h3>
-                            <p className="text-sm text-gray-300">
-                                Siga os mesmos passos como se fosse conectar ao WhatsApp Web
+                <>
+                    {error && (
+                        <Card className="p-4 bg-red-50 border-red-200">
+                            <p className="text-red-700 text-sm">⚠️ {error}</p>
+                            <p className="text-red-600 text-xs mt-2">
+                                Configure as variáveis de ambiente: VITE_EVOLUTION_API_URL e VITE_EVOLUTION_API_KEY
                             </p>
-                            <Button
-                                onClick={handleGenerateQR}
-                                disabled={isLoading}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold disabled:opacity-50"
-                            >
-                                {isLoading ? 'Gerando...' : 'Connect QR Code'}
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center space-y-6">
-                            <div className="bg-white p-4 rounded-xl">
-                                <img
-                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`}
-                                    alt="WhatsApp QR Code"
-                                    className="w-64 h-64"
-                                />
-                            </div>
-                            <div className="text-center space-y-2">
-                                <p className="text-blue-300 font-medium animate-pulse">
-                                    Aguardando leitura do QR Code...
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                    Atualiza automaticamente a cada 30s
-                                </p>
-                            </div>
-                        </div>
+                        </Card>
                     )}
-                </Card>
+
+                    {isChecking ? (
+                        <Card className="p-12 flex flex-col items-center justify-center text-gray-500">
+                            <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+                            <p>Verificando status da conexão...</p>
+                        </Card>
+                    ) : isConnected ? (
+                        <Card className="p-6 bg-green-50 border-green-200">
+                            <div className="flex items-center justify-between mb-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="relative">
+                                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center border-2 border-green-500">
+                                            <Icons.MessageSquare className="w-6 h-6 text-green-600" />
+                                        </div>
+                                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-green-900 text-lg">WhatsApp Conectado</h3>
+                                        {connectionInfo && connectionInfo.ownerJid ? (
+                                            <p className="text-green-700 text-sm font-mono">
+                                                {connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4')}
+                                            </p>
+                                        ) : (
+                                            <p className="text-green-700 text-sm">Sessão ativa e pronta para uso</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <Button
+                                    onClick={handleDisconnectClick}
+                                    className="bg-white text-red-600 border border-red-200 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                                >
+                                    Desconectar
+                                </Button>
+                            </div>
+
+                            {connectionInfo && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                                    <div className="bg-white p-4 rounded-lg border border-green-100 shadow-sm">
+                                        <span className="text-gray-500 text-xs font-bold uppercase tracking-wider block mb-1">Nome do Perfil</span>
+                                        {isEditingProfileName ? (
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={editedProfileName}
+                                                    onChange={(e) => setEditedProfileName(e.target.value)}
+                                                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                                                    placeholder="Digite o nome"
+                                                    autoFocus
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        if (editedProfileName.trim()) {
+                                                            const newName = editedProfileName.trim();
+                                                            setConnectionInfo({ ...connectionInfo, profileName: newName });
+                                                            // Salva no localStorage
+                                                            localStorage.setItem(`whatsapp_profile_name_${user.companyId}`, newName);
+                                                        }
+                                                        setIsEditingProfileName(false);
+                                                    }}
+                                                    className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                                                >
+                                                    ✓
+                                                </button>
+                                                <button
+                                                    onClick={() => setIsEditingProfileName(false)}
+                                                    className="px-2 py-1 bg-gray-300 text-gray-700 rounded text-xs hover:bg-gray-400"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-between">
+                                                <p className="font-semibold text-gray-800 text-lg">
+                                                    {connectionInfo.profileName?.trim() || (connectionInfo.ownerJid ? connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4') : 'Não identificado')}
+                                                </p>
+                                                <button
+                                                    onClick={() => {
+                                                        setEditedProfileName(connectionInfo.profileName?.trim() || '');
+                                                        setIsEditingProfileName(true);
+                                                    }}
+                                                    className="ml-2 text-gray-400 hover:text-gray-600"
+                                                    title="Editar nome"
+                                                >
+                                                    <Icons.Edit className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="bg-white p-4 rounded-lg border border-green-100 shadow-sm">
+                                        <span className="text-gray-500 text-xs font-bold uppercase tracking-wider block mb-1">Número Conectado</span>
+                                        <p className="font-mono text-gray-800 text-lg">
+                                            {connectionInfo.ownerJid ? connectionInfo.ownerJid.split(/[@.]/)[0].replace(/(\d{2})(\d{2})(\d{4,5})(\d{4})/, '+$1 ($2) $3-$4') : 'N/A'}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </Card>
+                    ) : (
+                        <Card className="p-6 bg-gray-900 text-white">
+                            {!qrCode ? (
+                                <div className="text-center space-y-4">
+                                    <h3 className="text-lg font-semibold text-blue-300">
+                                        Leia o QR Code no seu Dispositivo
+                                    </h3>
+                                    <p className="text-sm text-gray-300">
+                                        Siga os mesmos passos como se fosse conectar ao WhatsApp Web
+                                    </p>
+                                    <Button
+                                        onClick={handleGenerateQR}
+                                        disabled={isLoading}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold disabled:opacity-50"
+                                    >
+                                        {isLoading ? 'Gerando...' : 'Connect QR Code'}
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center space-y-6">
+                                    <div className="bg-white p-4 rounded-xl">
+                                        <img
+                                            src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`}
+                                            alt="WhatsApp QR Code"
+                                            className="w-64 h-64"
+                                        />
+                                    </div>
+                                    <div className="text-center space-y-2">
+                                        <p className="text-blue-300 font-medium animate-pulse">
+                                            Aguardando leitura do QR Code...
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                            Atualiza automaticamente a cada 30s
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </Card>
+                    )}
+                    {/* Instructions */}
+                    <Card className="p-6 bg-blue-50">
+                        <h3 className="font-semibold mb-3 text-blue-900">📱 Como Conectar</h3>
+                        <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
+                            <li>Abra o WhatsApp no seu celular</li>
+                            <li>Toque em <strong>Configurações → Aparelhos conectados</strong></li>
+                            <li>Toque em <strong>"Conectar um aparelho"</strong></li>
+                            <li>Aponte seu celular para a tela para ler o código QR</li>
+                        </ol>
+                    </Card>
+
+                    {/* Notification Templates Configuration */}
+                    {isConnected && (
+                        <NotificationTemplatesSection companyId={user.companyId || ''} />
+                    )}
+                </>
             )}
-            {/* Instructions */}
-            <Card className="p-6 bg-blue-50">
-                <h3 className="font-semibold mb-3 text-blue-900">📱 Como Conectar</h3>
-                <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
-                    <li>Abra o WhatsApp no seu celular</li>
-                    <li>Toque em <strong>Configurações → Aparelhos conectados</strong></li>
-                    <li>Toque em <strong>"Conectar um aparelho"</strong></li>
-                    <li>Aponte seu celular para a tela para ler o código QR</li>
-                </ol>
-            </Card>
 
             <ConfirmationModal
                 isOpen={showDisconnectModal}
@@ -2503,7 +2867,7 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
             ) : (
                 <Card>
                     <div className="p-4 border-b border-gray-100">
-                        <h3 className="font-semibold text-gray-800">Cashbacks Expirando em Breve (30 dias)</h3>
+                        <h3 className="font-semibold text-gray-800">Cashbacks Expirando em Breve (60 dias)</h3>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left min-w-[600px]">
