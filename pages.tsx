@@ -4,6 +4,8 @@ import { UserRole, CompanyPlan, AreaOfActivity } from './types';
 import { api } from './services';
 import { Button, Card, Icons, Input, StatCard, CompanyTable, SalesChart, ClientRanking, TransactionHistory, CampaignCard, Modal, ConfirmationModal, Textarea, Podium, Select } from './components';
 import { NotificationHistoryTab } from './NotificationHistoryTab';
+import { ClientDetailsModal } from './ClientDetailsModal';
+import { AdvancedFiltersComponent } from './AdvancedFilters';
 
 // LOGIN PAGE
 export const LoginPage: React.FC = () => {
@@ -1619,9 +1621,13 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
             // Build products array from productItems
             const productsData = productItems.map(item => {
                 const productName = item.name === '__custom__' ? item.customName : item.name;
+                const itemValue = parseFloat(item.value) || 0;
+
                 return {
-                    name: productName,
-                    value: parseFloat(item.value) || 0
+                    productName: productName,  // Changed from 'name' to 'productName'
+                    quantity: 1,               // Default quantity
+                    unitPrice: itemValue,      // Unit price
+                    totalPrice: itemValue      // Total price (same as unit since qty=1)
                 };
             });
 
@@ -1630,7 +1636,7 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
             const cashbackValue = (purchaseValue * cashbackPercentage) / 100;
 
             // Create product string for legacy field
-            const productString = productsData.map(p => p.name).join(', ');
+            const productString = productsData.map(p => p.productName).join(', ');
 
             const today = new Date().toISOString().split('T')[0];
             const expirationDate = (document.getElementById('expirationDate') as HTMLInputElement)?.value;
@@ -2757,11 +2763,17 @@ export const ProductsPage: React.FC<{ user: User }> = ({ user }) => {
 
 export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
     const [clients, setClients] = useState<Client[]>([]);
+    const [filteredClients, setFilteredClients] = useState<Client[]>([]);
     const [expiringTransactions, setExpiringTransactions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [activeTab, setActiveTab] = useState<'clients' | 'expiring'>('clients');
+
+    // New state for client details
+    const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+    const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+    const [filtering, setFiltering] = useState(false);
 
     const fetchClients = useCallback(async () => {
         if (!user.companyId) return;
@@ -2772,6 +2784,7 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                 api.getDashboardMetrics(user.companyId)
             ]);
             setClients(adminData.clients);
+            setFilteredClients(adminData.clients); // Inicializa filtrados
             setExpiringTransactions(metricsData.transacoesAVencer || []);
         } catch (e) {
             console.error(e);
@@ -2801,7 +2814,33 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
         } else {
             await api.addClient(user.companyId, { ...data, status: 'Nenhum', points: 0, totalCashback: 0, lastPurchase: new Date().toISOString() });
         }
+        await fetchClients();
     };
+
+    // New handlers
+    const handleViewDetails = (client: Client) => {
+        setSelectedClient(client);
+        setIsDetailsModalOpen(true);
+    };
+
+    const handleFilterChange = async (filters: any) => {
+        if (!user.companyId) return;
+
+        setFiltering(true);
+        try {
+            const filtered = await api.getClientsAdvancedFilter(user.companyId, filters);
+            setFilteredClients(filtered);
+        } catch (error) {
+            console.error('Error filtering clients:', error);
+        } finally {
+            setFiltering(false);
+        }
+    };
+
+    const handleClearFilters = () => {
+        setFilteredClients(clients);
+    };
+
 
     return (
         <main className="p-4 sm:p-6 space-y-6">
@@ -2831,6 +2870,22 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                 </div>
             </div>
 
+            {/* Advanced Filters */}
+            {activeTab === 'clients' && user.companyId && (
+                <AdvancedFiltersComponent
+                    companyId={user.companyId}
+                    onFilterChange={handleFilterChange}
+                    onClear={handleClearFilters}
+                />
+            )}
+
+            {/* Results counter */}
+            {activeTab === 'clients' && !loading && (
+                <div className="text-sm text-gray-600">
+                    📊 {filtering ? 'Filtrando...' : `${filteredClients.length} cliente(s) encontrado(s)`}
+                </div>
+            )}
+
             {loading ? <p>Carregando...</p> : activeTab === 'clients' ? (
                 <Card>
                     <div className="overflow-x-auto">
@@ -2840,23 +2895,38 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                                     <th className="p-3">Nome</th>
                                     <th className="p-3">CPF</th>
                                     <th className="p-3">Telefone</th>
+                                    <th className="p-3">Cashback</th>
                                     <th className="p-3">Tier</th>
-                                    <th className="p-3">Pontos</th>
                                     <th className="p-3">Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {clients.map(c => (
+                                {filteredClients.map(c => (
                                     <tr key={c.id} className="border-b hover:bg-gray-50">
                                         <td className="p-3 font-semibold">{c.name}</td>
                                         <td className="p-3">{c.cpf}</td>
                                         <td className="p-3">{c.phone}</td>
+                                        <td className="p-3 font-bold text-green-600">
+                                            R$ {c.totalCashback.toFixed(2)}
+                                        </td>
                                         <td className="p-3">{c.status}</td>
-                                        <td className="p-3">{c.points}</td>
                                         <td className="p-3">
-                                            <button onClick={() => handleEdit(c)} className="text-brand-primary hover:bg-brand-primary/10 p-2 rounded">
-                                                <Icons.Edit className="w-5 h-5" />
-                                            </button>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => handleViewDetails(c)}
+                                                    className="text-blue-600 hover:bg-blue-50 p-2 rounded"
+                                                    title="Ver Detalhes"
+                                                >
+                                                    👁️
+                                                </button>
+                                                <button
+                                                    onClick={() => handleEdit(c)}
+                                                    className="text-brand-primary hover:bg-brand-primary/10 p-2 rounded"
+                                                    title="Editar"
+                                                >
+                                                    <Icons.Edit className="w-5 h-5" />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -2938,6 +3008,13 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                     </div>
                 </Card>
             )}
+
+            {/* Modals */}
+            <ClientDetailsModal
+                client={selectedClient}
+                isOpen={isDetailsModalOpen}
+                onClose={() => setIsDetailsModalOpen(false)}
+            />
             <ClientFormModal isOpen={isModalOpen} onClose={(saved) => { setIsModalOpen(false); if (saved) fetchClients(); }} onSave={handleSave} client={editingClient} />
         </main>
     );

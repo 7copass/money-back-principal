@@ -1,5 +1,5 @@
 
-import { User, UserRole, Company, CompanyPlan, Transaction, Campaign, Client, AreaOfActivity } from './types';
+import { User, UserRole, Company, CompanyPlan, Transaction, Campaign, Client, AreaOfActivity, AdvancedFilters, ClientAnalytics, TransactionDetailed } from './types';
 import { supabase } from './supabaseClient';
 
 // --- CORE API SERVICES ---
@@ -532,6 +532,272 @@ export const api = {
 
         const { error } = await supabase.from('clients').update(payload).eq('id', clientId);
         if (error) throw error;
+    },
+
+    // CLIENT DETAILS & ANALYTICS
+    getClientDetails: async (clientId: string) => {
+        const { data: client, error: clientError } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('id', clientId)
+            .single();
+
+        if (clientError) throw clientError;
+        if (!client) return null;
+
+        return {
+            id: client.id,
+            companyId: client.company_id,
+            name: client.name,
+            cpf: client.cpf,
+            phone: client.phone,
+            email: client.email,
+            lastPurchase: client.last_purchase,
+            totalCashback: client.total_cashback,
+            status: client.status as Client['status'],
+            points: client.points
+        };
+    },
+
+    getClientTransactions: async (clientId: string, limit: number = 50) => {
+        const { data, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('client_id', clientId)
+            .order('purchase_date', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+
+        return (data || []).map((t: any) => ({
+            id: t.id,
+            clientId: t.client_id,
+            customerName: t.customer_name,
+            product: t.product,
+            products_details: t.products_details, // JSONB array
+            purchaseValue: t.purchase_value,
+            cashbackPercentage: t.cashback_percentage,
+            cashbackValue: t.cashback_value,
+            purchaseDate: t.purchase_date,
+            cashbackExpirationDate: t.cashback_expiration_date,
+            status: t.status,
+            sellerId: t.seller_id,
+            sellerName: t.seller_name
+        }));
+    },
+
+    getClientAnalytics: async (clientId: string) => {
+        // Busca todas as transações do cliente
+        const { data: transactions, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('client_id', clientId);
+
+        if (error) throw error;
+        if (!transactions || transactions.length === 0) {
+            return {
+                totalSpent: 0,
+                purchaseCount: 0,
+                averageTicket: 0,
+                uniqueProducts: 0,
+                topProducts: [],
+                cashbackGenerated: 0,
+                cashbackRedeemed: 0,
+                redemptionRate: 0,
+                firstPurchaseDate: null,
+                lastPurchaseDate: null,
+                daysSinceLastPurchase: null
+            };
+        }
+
+        // Cálculos
+        const totalSpent = transactions.reduce((sum, t) => sum + (t.purchase_value || 0), 0);
+        const purchaseCount = transactions.length;
+        const averageTicket = totalSpent / purchaseCount;
+
+        // Cashback
+        const cashbackGenerated = transactions
+            .filter(t => t.status !== 'Resgatado')
+            .reduce((sum, t) => sum + (t.cashback_value || 0), 0);
+        const cashbackRedeemed = transactions
+            .filter(t => t.status === 'Resgatado')
+            .reduce((sum, t) => Math.abs(t.cashback_value || 0), 0);
+        const redemptionRate = cashbackGenerated > 0
+            ? (cashbackRedeemed / (cashbackGenerated + cashbackRedeemed)) * 100
+            : 0;
+
+        // Produtos únicos e top products
+        const productMap: Map<string, { count: number; total: number }> = new Map();
+
+        transactions.forEach(t => {
+            // Se tem products_details, usa eles
+            if (t.products_details && Array.isArray(t.products_details)) {
+                t.products_details.forEach((p: any) => {
+                    const name = p.productName || 'Produto';
+                    const existing = productMap.get(name) || { count: 0, total: 0 };
+                    productMap.set(name, {
+                        count: existing.count + (p.quantity || 1),
+                        total: existing.total + (p.totalPrice || 0)
+                    });
+                });
+            } else if (t.product) {
+                // Fallback para campo product antigo
+                const existing = productMap.get(t.product) || { count: 0, total: 0 };
+                productMap.set(t.product, {
+                    count: existing.count + 1,
+                    total: existing.total + (t.purchase_value || 0)
+                });
+            }
+        });
+
+        const topProducts = Array.from(productMap.entries())
+            .map(([name, data]) => ({ name, ...data }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 5);
+
+        const uniqueProducts = productMap.size;
+
+        // Datas
+        const sortedByDate = [...transactions].sort((a, b) =>
+            new Date(a.purchase_date).getTime() - new Date(b.purchase_date).getTime()
+        );
+        const firstPurchaseDate = sortedByDate[0]?.purchase_date || null;
+        const lastPurchaseDate = sortedByDate[sortedByDate.length - 1]?.purchase_date || null;
+
+        const daysSinceLastPurchase = lastPurchaseDate
+            ? Math.floor((new Date().getTime() - new Date(lastPurchaseDate).getTime()) / (1000 * 60 * 60 * 24))
+            : null;
+
+        return {
+            totalSpent,
+            purchaseCount,
+            averageTicket,
+            uniqueProducts,
+            topProducts,
+            cashbackGenerated,
+            cashbackRedeemed,
+            redemptionRate,
+            firstPurchaseDate,
+            lastPurchaseDate,
+            daysSinceLastPurchase
+        };
+    },
+
+    getClientsAdvancedFilter: async (companyId: string, filters: any) => {
+        // Busca base de clientes
+        let query = supabase
+            .from('clients')
+            .select('*')
+            .eq('company_id', companyId);
+
+        // Filtro por cashback disponível
+        if (filters.cashbackAvailableMin !== undefined) {
+            query = query.gte('total_cashback', filters.cashbackAvailableMin);
+        }
+        if (filters.cashbackAvailableMax !== undefined) {
+            query = query.lte('total_cashback', filters.cashbackAvailableMax);
+        }
+
+        // Filtro por última compra
+        if (filters.lastPurchaseFrom) {
+            query = query.gte('last_purchase', filters.lastPurchaseFrom);
+        }
+        if (filters.lastPurchaseTo) {
+            query = query.lte('last_purchase', filters.lastPurchaseTo);
+        }
+
+        const { data: clients, error: clientsError } = await query;
+
+        if (clientsError) throw clientsError;
+        if (!clients || clients.length === 0) return [];
+
+        // Se não há filtros de transação, retorna direto
+        const hasTransactionFilters =
+            filters.products?.length ||
+            filters.categories?.length ||
+            filters.totalSpentMin !== undefined ||
+            filters.totalSpentMax !== undefined ||
+            filters.purchaseCountMin !== undefined ||
+            filters.purchaseCountMax !== undefined;
+
+        if (!hasTransactionFilters) {
+            return clients.map((c: any) => ({
+                id: c.id,
+                companyId: c.company_id,
+                name: c.name,
+                cpf: c.cpf,
+                phone: c.phone,
+                email: c.email,
+                lastPurchase: c.last_purchase,
+                totalCashback: c.total_cashback,
+                status: c.status as Client['status'],
+                points: c.points
+            }));
+        }
+
+        // Busca transações para filtros avançados
+        const { data: transactions, error: transError } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('company_id', companyId)
+            .in('client_id', clients.map(c => c.id));
+
+        if (transError) throw transError;
+
+        // Agrupa transações por cliente
+        const clientTransactions: Map<string, any[]> = new Map();
+        (transactions || []).forEach(t => {
+            const existing = clientTransactions.get(t.client_id) || [];
+            existing.push(t);
+            clientTransactions.set(t.client_id, existing);
+        });
+
+        // Filtra clientes baseado em transações
+        const filteredClients = clients.filter((client: any) => {
+            const clientTrans = clientTransactions.get(client.id) || [];
+            if (clientTrans.length === 0 && hasTransactionFilters) return false;
+
+            // Filtro por produtos
+            if (filters.products?.length) {
+                const hasProduct = clientTrans.some(t => {
+                    // Verifica em products_details
+                    if (t.products_details && Array.isArray(t.products_details)) {
+                        return t.products_details.some((p: any) =>
+                            filters.products.includes(p.productName)
+                        );
+                    }
+                    // Fallback para campo product
+                    return filters.products.includes(t.product);
+                });
+                if (!hasProduct) return false;
+            }
+
+            // Filtro por total gasto
+            if (filters.totalSpentMin !== undefined || filters.totalSpentMax !== undefined) {
+                const totalSpent = clientTrans.reduce((sum, t) => sum + (t.purchase_value || 0), 0);
+                if (filters.totalSpentMin !== undefined && totalSpent < filters.totalSpentMin) return false;
+                if (filters.totalSpentMax !== undefined && totalSpent > filters.totalSpentMax) return false;
+            }
+
+            // Filtro por número de compras
+            if (filters.purchaseCountMin !== undefined && clientTrans.length < filters.purchaseCountMin) return false;
+            if (filters.purchaseCountMax !== undefined && clientTrans.length > filters.purchaseCountMax) return false;
+
+            return true;
+        });
+
+        return filteredClients.map((c: any) => ({
+            id: c.id,
+            companyId: c.company_id,
+            name: c.name,
+            cpf: c.cpf,
+            phone: c.phone,
+            email: c.email,
+            lastPurchase: c.last_purchase,
+            totalCashback: c.total_cashback,
+            status: c.status as Client['status'],
+            points: c.points
+        }));
     },
 
     // PRODUCTS CRUD

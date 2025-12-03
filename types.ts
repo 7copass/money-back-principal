@@ -91,3 +91,47 @@ export interface Product {
     category?: string;
     isActive: boolean;
 }
+
+// Advanced Filters for Client Segmentation
+export interface AdvancedFilters {
+    products?: string[];
+    categories?: string[];
+    totalSpentMin?: number;
+    totalSpentMax?: number;
+    purchaseCountMin?: number;
+    purchaseCountMax?: number;
+    cashbackAvailableMin?: number;
+    cashbackAvailableMax?: number;
+    lastPurchaseFrom?: string;
+    lastPurchaseTo?: string;
+}
+
+// Client Analytics
+export interface ClientAnalytics {
+    totalSpent: number;
+    purchaseCount: number;
+    averageTicket: number;
+    uniqueProducts: number;
+    topProducts: Array<{
+        name: string;
+        count: number;
+        total: number;
+    }>;
+    cashbackGenerated: number;
+    cashbackRedeemed: number;
+    redemptionRate: number;
+    firstPurchaseDate: string | null;
+    lastPurchaseDate: string | null;
+    daysSinceLastPurchase: number | null;
+}
+
+// Transaction with detailed products
+export interface TransactionDetailed extends Transaction {
+    products_details?: Array<{
+        productId?: string;
+        productName: string;
+        quantity?: number;
+        unitPrice?: number;
+        totalPrice: number;
+    }>;
+}
