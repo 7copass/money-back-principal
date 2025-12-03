@@ -107,7 +107,7 @@ async function processCompanyNotifications(supabase: any, companyId: string) {
         .from('transactions')
         .select('id, client_id, cashback_value, cashback_expiration_date, clients(id, name, phone)')
         .eq('company_id', companyId)
-        .eq('cashback_redeemed', false)
+        .eq('status', 'Disponível')
         .not('cashback_expiration_date', 'is', null)
 
     if (!transactions || transactions.length === 0) {
