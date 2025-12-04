@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { toast } from 'react-hot-toast';
 import type { User, Company, Transaction, Campaign, Client, Product } from './types';
 import { UserRole, CompanyPlan, AreaOfActivity } from './types';
 import { api } from './services';
@@ -366,7 +367,7 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
             setEditingTemplate(null);
         } catch (error) {
             console.error('Error saving template:', error);
-            alert('Erro ao salvar template');
+            toast.error('Erro ao salvar template');
         } finally {
             setSaving(null);
         }
@@ -380,11 +381,12 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
         setProcessingNotifications(true);
         setProcessResult(null);
         try {
-            const result = await api.notifications.processExpirationNotifications(companyId);
+            // Pass true to force processing regardless of schedule
+            const result = await api.notifications.processNotifications(companyId, true);
             setProcessResult(result);
         } catch (error: any) {
             console.error('Error processing notifications:', error);
-            alert(`Erro ao processar notificações: ${error.message}`);
+            toast.error(`Erro ao processar notificações: ${error.message}`);
         } finally {
             setProcessingNotifications(false);
         }
@@ -395,17 +397,21 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
 
         setSavingSettings(true);
         try {
-            await api.notifications.updateSettings(companyId, {
+            const payload = {
                 enabled: settings.notifications_enabled,
                 delayMin: settings.notification_delay_min,
                 delayMax: settings.notification_delay_max,
                 scheduleHour: settings.notification_schedule_hour,
                 scheduleMinute: parseInt(settings.notification_schedule_minute) || 0
-            });
-            alert('Configurações salvas com sucesso!');
+            };
+            
+            console.log('Saving settings with payload:', payload);
+            
+            await api.notifications.updateSettings(companyId, payload);
+            toast.success('Configurações salvas com sucesso!');
         } catch (error) {
             console.error('Error saving settings:', error);
-            alert('Erro ao salvar configurações');
+            toast.error('Erro ao salvar configurações');
         } finally {
             setSavingSettings(false);
         }

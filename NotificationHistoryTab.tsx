@@ -71,7 +71,15 @@ export const NotificationHistoryTab: React.FC<NotificationHistoryTabProps> = ({ 
                         {history.map((log: any) => (
                             <tr key={log.id} className="hover:bg-gray-50">
                                 <td className="px-4 py-3 text-sm text-gray-900">
-                                    {new Date(log.sent_at).toLocaleString('pt-BR')}
+                                    {new Intl.DateTimeFormat('pt-BR', {
+                                        day: '2-digit',
+                                        month: '2-digit',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        second: '2-digit',
+                                        timeZone: 'America/Sao_Paulo'
+                                    }).format(new Date(log.sent_at))}
                                 </td>
                                 <td className="px-4 py-3 text-sm">
                                     <div className="font-medium text-gray-900">{log.clients?.name}</div>

@@ -1611,21 +1611,75 @@ export const api = {
 
         // Update notification settings
         updateSettings: async (companyId: string, settings: any) => {
-            const { data, error } = await supabase
+            console.log('[Update Settings] Company ID:', companyId);
+            console.log('[Update Settings] Settings:', settings);
+            
+            // Primeiro, verifica se a empresa existe
+            const { data: companyCheck, error: checkError } = await supabase
                 .from('companies')
-                .update({
+                .select('id, name')
+                .eq('id', companyId)
+                .single();
+                
+            console.log('[Update Settings] Company check:', { companyCheck, checkError });
+            
+            if (checkError || !companyCheck) {
+                throw new Error(`Empresa com ID ${companyId} não encontrada no banco de dados. Erro: ${checkError?.message || 'Não encontrada'}`);
+            }
+            
+            // Agora tenta atualizar COM o campo notification_schedule_minute
+            const updateData: any = {
+                notifications_enabled: settings.enabled,
+                notification_delay_min: settings.delayMin,
+                notification_delay_max: settings.delayMax,
+                notification_schedule_hour: settings.scheduleHour
+            };
+            
+            // Adiciona o minuto apenas se tiver valor
+            const scheduleMinute = parseInt(settings.scheduleMinute);
+            if (!isNaN(scheduleMinute)) {
+                updateData.notification_schedule_minute = scheduleMinute;
+            }
+            
+            let { data, error } = await supabase
+                .from('companies')
+                .update(updateData)
+                .eq('id', companyId)
+                .select();
+
+            console.log('[Update Settings] Result:', { data, error });
+
+            // Se deu erro de coluna não existe, tenta sem o campo
+            if (error && error.message?.includes('notification_schedule_minute')) {
+                console.warn('[Update Settings] Column notification_schedule_minute not found, retrying without it...');
+                
+                const fallbackData = {
                     notifications_enabled: settings.enabled,
                     notification_delay_min: settings.delayMin,
                     notification_delay_max: settings.delayMax,
-                    notification_schedule_hour: settings.scheduleHour,
-                    notification_schedule_minute: parseInt(settings.scheduleMinute) || 0
-                })
-                .eq('id', companyId)
-                .select()
-                .single();
+                    notification_schedule_hour: settings.scheduleHour
+                };
+                
+                const result = await supabase
+                    .from('companies')
+                    .update(fallbackData)
+                    .eq('id', companyId)
+                    .select();
+                    
+                data = result.data;
+                error = result.error;
+                
+                console.log('[Update Settings] Fallback result:', { data, error });
+            }
 
             if (error) throw error;
-            return data;
+            
+            // Se não atualizou nenhuma linha (isso não deveria acontecer mais)
+            if (!data || data.length === 0) {
+                throw new Error(`Falha ao atualizar empresa ${companyId}. A empresa foi encontrada mas o UPDATE falhou.`);
+            }
+            
+            return data[0];
         },
 
         // Sleep utility for delays
@@ -1640,7 +1694,8 @@ export const api = {
 
 
         // Process expiration notifications for a company
-        processExpirationNotifications: async (companyId: string) => {
+        // Process notifications
+        processNotifications: async (companyId: string, force: boolean = false) => {
             try {
                 // Get active templates
                 const templates = await api.notifications.getTemplates(companyId);
@@ -1654,17 +1709,29 @@ export const api = {
                 // Get notification settings
                 const settings = await api.notifications.getSettings(companyId);
 
-                if (!settings.notifications_enabled) {
+                if (!settings.notifications_enabled && !force) {
                     console.log('Notifications disabled for company:', companyId);
                     return { processed: 0, sent: 0, errors: 0, disabled: true };
                 }
 
-                // Check schedule hour
-                if (settings.notification_schedule_hour !== undefined && settings.notification_schedule_hour !== null) {
+                // Check schedule hour (ONLY if not forced)
+                if (!force && settings.notification_schedule_hour !== undefined && settings.notification_schedule_hour !== null) {
                     const currentHour = new Date().getHours();
+                    const currentMinute = new Date().getMinutes();
+                    
+                    // Verifica hora
                     if (currentHour !== settings.notification_schedule_hour) {
                         console.log(`Skipping notifications: Scheduled for ${settings.notification_schedule_hour}h, current is ${currentHour}h`);
                         return { processed: 0, sent: 0, errors: 0, skipped: true };
+                    }
+                    
+                    // Verifica minuto (se configurado)
+                    if (settings.notification_schedule_minute !== undefined && settings.notification_schedule_minute !== null) {
+                         // Permite uma margem de erro de 5 minutos para garantir que o cron pegue
+                        if (Math.abs(currentMinute - settings.notification_schedule_minute) > 5) {
+                             console.log(`Skipping notifications: Scheduled for minute ${settings.notification_schedule_minute}, current is ${currentMinute}`);
+                             return { processed: 0, sent: 0, errors: 0, skipped: true };
+                        }
                     }
                 }
 
@@ -1727,14 +1794,14 @@ export const api = {
                     const template = activeTemplates.find(t => t.notification_type === notificationType);
                     if (!template) continue;
 
-                    // Check template-specific schedule hour
-                    if (template.schedule_hour !== undefined && template.schedule_hour !== null) {
-                        const currentHour = new Date().getHours();
-                        if (currentHour !== template.schedule_hour) {
-                            console.log(`Skipping ${notificationType}: Scheduled for ${template.schedule_hour}h, current is ${currentHour}h`);
-                            continue;
-                        }
-                    }
+                    // Check template-specific schedule hour - REMOVED to use general settings only
+                    // if (!force && template.schedule_hour !== undefined && template.schedule_hour !== null) {
+                    //    const currentHour = new Date().getHours();
+                    //    if (currentHour !== template.schedule_hour) {
+                    //        console.log(`Skipping ${notificationType}: Scheduled for ${template.schedule_hour}h, current is ${currentHour}h`);
+                    //        continue;
+                    //    }
+                    // }
 
                     processed++;
 

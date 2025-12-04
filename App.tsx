@@ -1,5 +1,6 @@
 
 import React, { useState, createContext, useContext, useCallback, useMemo, useEffect, useRef } from 'react';
+import { Toaster } from 'react-hot-toast';
 import type { User } from './types';
 import { UserRole } from './types';
 import { LoginPage, Dashboard } from './pages';
@@ -180,7 +181,7 @@ const NotificationScheduler: React.FC<{ user: User | null }> = ({ user }) => {
         const processNotifications = async () => {
             try {
                 console.log('[Scheduler] Processing notifications...');
-                const result = await api.notifications.processExpirationNotifications(user.companyId!);
+                const result = await api.notifications.processNotifications(user.companyId!);
                 console.log('[Scheduler] Result:', result);
             } catch (error) {
                 console.error('[Scheduler] Error processing notifications:', error);
@@ -325,6 +326,26 @@ const DashboardLayout: React.FC<{ user: User; currentPage: string; onNavigate: (
 function App() {
     return (
         <AuthProvider>
+            <Toaster 
+                position="top-right"
+                toastOptions={{
+                    className: '',
+                    style: {
+                        background: '#333',
+                        color: '#fff',
+                    },
+                    success: {
+                        style: {
+                            background: '#10B981',
+                        },
+                    },
+                    error: {
+                        style: {
+                            background: '#EF4444',
+                        },
+                    },
+                }}
+            />
             <AppContent />
         </AuthProvider>
     );
