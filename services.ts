@@ -1,5 +1,5 @@
 
-import { User, UserRole, Company, CompanyPlan, Transaction, Campaign, Client, AreaOfActivity, AdvancedFilters, ClientAnalytics, TransactionDetailed } from './types';
+import { User, UserRole, Company, CompanyPlan, Transaction, Campaign, Client, AreaOfActivity, AdvancedFilters, ClientAnalytics, TransactionDetailed, RFMData, RFMClient } from './types';
 import { supabase } from './supabaseClient';
 
 // --- CORE API SERVICES ---
@@ -1787,5 +1787,286 @@ export const api = {
                 throw error;
             }
         }
+    },
+
+    // 5. ANÁLISE ABC
+    getABCAnalysis: async (companyId: string, startDate?: string, endDate?: string) => {
+        // Define período padrão (últimos 30 dias) se não informado
+        const end = endDate ? new Date(endDate) : new Date();
+        const start = startDate ? new Date(startDate) : new Date();
+        if (!startDate) start.setDate(end.getDate() - 30);
+
+        // Ajusta horas
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+
+        // 1. Busca transações do período
+        const { data: transactions, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('company_id', companyId)
+            .gte('purchase_date', start.toISOString())
+            .lte('purchase_date', end.toISOString());
+
+        if (error) throw error;
+
+        // 2. Busca TODOS os produtos cadastrados (para identificar os sem vendas)
+        const { data: allProducts, error: prodError } = await supabase
+            .from('products')
+            .select('name')
+            .eq('company_id', companyId);
+            
+        if (prodError) throw prodError;
+
+        // Processa produtos vendidos
+        const productMap: Map<string, { count: number; revenue: number }> = new Map();
+
+        (transactions || []).forEach(t => {
+            // Se tem products_details, usa eles (suporte a múltiplos produtos)
+            if (t.products_details && Array.isArray(t.products_details)) {
+                t.products_details.forEach((p: any) => {
+                    const name = p.productName || 'Produto Desconhecido';
+                    const existing = productMap.get(name) || { count: 0, revenue: 0 };
+                    productMap.set(name, {
+                        count: existing.count + (p.quantity || 1),
+                        revenue: existing.revenue + (p.totalPrice || 0)
+                    });
+                });
+            } else if (t.product) {
+                // Fallback para campo product antigo (string única)
+                const name = t.product;
+                const existing = productMap.get(name) || { count: 0, revenue: 0 };
+                productMap.set(name, {
+                    count: existing.count + 1,
+                    revenue: existing.revenue + (t.purchase_value || 0)
+                });
+            }
+        });
+
+        // Cria lista inicial com produtos vendidos
+        let products = Array.from(productMap.entries())
+            .map(([name, data]) => ({
+                name,
+                count: data.count,
+                revenue: data.revenue,
+                percentage: 0,
+                accumulated: 0,
+                class: 'C' as 'A' | 'B' | 'C' | 'Sem Vendas'
+            }));
+
+        // Adiciona produtos SEM vendas (que estão no cadastro mas não no mapa)
+        const soldProductNames = new Set(products.map(p => p.name));
+        
+        (allProducts || []).forEach(p => {
+            if (!soldProductNames.has(p.name)) {
+                products.push({
+                    name: p.name,
+                    count: 0,
+                    revenue: 0,
+                    percentage: 0,
+                    accumulated: 100, // Ficam no final
+                    class: 'Sem Vendas'
+                });
+            }
+        });
+
+        // Ordena por faturamento (decrescente)
+        products.sort((a, b) => b.revenue - a.revenue);
+
+        // Calcula totais e percentuais
+        const totalRevenue = products.reduce((sum, p) => sum + p.revenue, 0);
+        let accumulatedRevenue = 0;
+
+        products = products.map(p => {
+            if (p.revenue === 0) {
+                return { ...p, percentage: 0, accumulated: 100, class: 'Sem Vendas' };
+            }
+
+            const percentage = totalRevenue > 0 ? (p.revenue / totalRevenue) * 100 : 0;
+            accumulatedRevenue += p.revenue;
+            const accumulatedPercentage = totalRevenue > 0 ? (accumulatedRevenue / totalRevenue) * 100 : 0;
+
+            // Classificação ABC
+            let classification: 'A' | 'B' | 'C' | 'Sem Vendas' = 'C';
+            if (accumulatedPercentage <= 80) classification = 'A';
+            else if (accumulatedPercentage <= 95) classification = 'B';
+            
+            return {
+                ...p,
+                percentage,
+                accumulated: accumulatedPercentage,
+                class: classification
+            };
+        });
+
+        return {
+            products,
+            totalRevenue,
+            period: { start, end }
+        };
+    },
+
+    // 6. ANÁLISE RFM
+    getRFMAnalysis: async (companyId: string): Promise<RFMData> => {
+        // 1. Busca todas as transações da empresa
+        const { data: transactions, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('company_id', companyId);
+
+        if (error) throw error;
+
+        // 2. Busca todos os clientes
+        const { data: clients, error: clientError } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('company_id', companyId);
+
+        if (clientError) throw clientError;
+
+        // Mapa de clientes
+        const clientMap = new Map<string, any>();
+        clients.forEach(c => clientMap.set(c.id, c));
+
+        // Agrupa transações por cliente
+        const clientStats = new Map<string, {
+            totalSpent: number;
+            purchaseCount: number;
+            lastPurchaseDate: Date;
+        }>();
+
+        (transactions || []).forEach(t => {
+            const clientId = t.client_id;
+            if (!clientId) return;
+
+            const current = clientStats.get(clientId) || {
+                totalSpent: 0,
+                purchaseCount: 0,
+                lastPurchaseDate: new Date(0)
+            };
+
+            const purchaseDate = new Date(t.purchase_date);
+            const value = t.purchase_value || 0;
+
+            clientStats.set(clientId, {
+                totalSpent: current.totalSpent + value,
+                purchaseCount: current.purchaseCount + 1,
+                lastPurchaseDate: purchaseDate > current.lastPurchaseDate ? purchaseDate : current.lastPurchaseDate
+            });
+        });
+
+        const today = new Date();
+        const rfmClients: RFMClient[] = [];
+
+        // Processa cada cliente
+        clientStats.forEach((stats, clientId) => {
+            const clientInfo = clientMap.get(clientId);
+            if (!clientInfo) return;
+
+            // Recency (dias)
+            const diffTime = Math.abs(today.getTime() - stats.lastPurchaseDate.getTime());
+            const recencyDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            // Frequency
+            const frequency = stats.purchaseCount;
+
+            // Monetary
+            const monetary = stats.totalSpent;
+
+            // Scores (1-5)
+            let rScore = 1;
+            if (recencyDays <= 7) rScore = 5;
+            else if (recencyDays <= 30) rScore = 4;
+            else if (recencyDays <= 60) rScore = 3;
+            else if (recencyDays <= 90) rScore = 2;
+
+            let fScore = 1;
+            if (frequency >= 10) fScore = 5;
+            else if (frequency >= 6) fScore = 4;
+            else if (frequency >= 4) fScore = 3;
+            else if (frequency >= 2) fScore = 2;
+
+            let mScore = 1;
+            if (monetary >= 1000) mScore = 5;
+            else if (monetary >= 500) mScore = 4;
+            else if (monetary >= 250) mScore = 3;
+            else if (monetary >= 100) mScore = 2;
+
+            const rfmCode = `${rScore}${fScore}${mScore}`;
+            let segment = 'Lost'; // Default fallback
+
+            // Lógica de Segmentação Exata
+            const champions = ['555', '554', '544', '545', '454', '455', '445'];
+            const loyal = ['543', '444', '435', '355', '354', '345', '344', '335'];
+            const potential = ['553', '551', '552', '541', '542', '533', '532', '531', '452', '451', '442', '441', '431', '453', '433', '432', '423', '353', '352', '351', '342', '341', '333', '323'];
+            const promising = ['525', '524', '523', '522', '521', '515', '514', '513', '425', '424', '413', '414', '415', '315', '314', '313'];
+            const needAttention = ['535', '534', '443', '434', '343', '334', '325', '324'];
+            const aboutToSleep = ['331', '321', '312', '221', '213', '231', '241', '251', '233', '232', '223', '222', '132', '123', '122', '212', '211', '124', '121', '131', '141', '151'];
+            const atRisk = ['255', '254', '245', '244', '253', '252', '243', '242', '235', '234', '225', '224', '153', '152', '145', '143', '142', '135', '134', '133', '125', '124'];
+            const cantLose = ['155', '154', '144', '214', '215', '115', '114', '113'];
+            const hibernating = ['332', '322', '233', '232', '223', '222', '132', '123', '122', '212', '211'];
+            const lost = ['111', '112', '121', '131', '141', '151'];
+
+            if (champions.includes(rfmCode)) segment = 'Champions';
+            else if (loyal.includes(rfmCode)) segment = 'Loyal Customers';
+            else if (potential.includes(rfmCode)) segment = 'Potential Loyalists';
+            else if (fScore === 1 && mScore < 3) segment = 'New Customers'; // Regra especial para New Customers (F=1 e M baixo/medio)
+            else if (promising.includes(rfmCode)) segment = 'Promising';
+            else if (needAttention.includes(rfmCode)) segment = 'Need Attention';
+            else if (aboutToSleep.includes(rfmCode)) segment = 'About to Sleep';
+            else if (atRisk.includes(rfmCode)) segment = 'At Risk';
+            else if (cantLose.includes(rfmCode)) segment = "Can't Lose Them";
+            else if (hibernating.includes(rfmCode)) segment = 'Hibernating';
+            else if (lost.includes(rfmCode)) segment = 'Lost';
+            else {
+                // Fallback lógico se o código não estiver mapeado (ex: combinações raras)
+                if (rScore >= 4 && fScore >= 4) segment = 'Champions';
+                else if (rScore >= 3 && fScore >= 3) segment = 'Loyal Customers';
+                else if (rScore <= 2 && fScore >= 4) segment = 'At Risk';
+                else if (rScore <= 1 && fScore >= 4) segment = "Can't Lose Them";
+                else if (rScore <= 2 && fScore <= 2) segment = 'Hibernating';
+                else segment = 'Potential Loyalists'; // Default seguro
+            }
+
+            rfmClients.push({
+                id: clientId,
+                name: clientInfo.name,
+                phone: clientInfo.phone,
+                email: clientInfo.email,
+                lastPurchaseDate: stats.lastPurchaseDate.toISOString(),
+                totalPurchases: frequency,
+                totalSpent: monetary,
+                recency: recencyDays,
+                rScore,
+                fScore,
+                mScore,
+                segment
+            });
+        });
+
+        // Calcula estatísticas dos segmentos
+        const segments: Record<string, { count: number; revenue: number; percentage: number }> = {};
+        const totalRevenue = rfmClients.reduce((sum, c) => sum + c.totalSpent, 0);
+        const totalClients = rfmClients.length;
+
+        rfmClients.forEach(c => {
+            if (!segments[c.segment]) {
+                segments[c.segment] = { count: 0, revenue: 0, percentage: 0 };
+            }
+            segments[c.segment].count++;
+            segments[c.segment].revenue += c.totalSpent;
+        });
+
+        // Calcula percentuais
+        Object.keys(segments).forEach(seg => {
+            segments[seg].percentage = totalClients > 0 ? (segments[seg].count / totalClients) * 100 : 0;
+        });
+
+        return {
+            clients: rfmClients,
+            segments,
+            totalRevenue,
+            totalClients
+        };
     }
 };

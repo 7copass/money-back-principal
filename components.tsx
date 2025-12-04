@@ -66,6 +66,14 @@ export const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = (
   <select {...props} className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-primary bg-white text-brand-darkest ${props.className}`} />
 );
 
+// LOADER COMPONENT
+export const Loader: React.FC<{ className?: string, text?: string }> = ({ className = '', text }) => (
+  <div className={`flex flex-col justify-center items-center p-8 ${className}`}>
+    <div className="loader mb-4"></div>
+    {text && <p className="text-gray-500 font-medium animate-pulse">{text}</p>}
+  </div>
+);
+
 
 // MODAL COMPONENT
 export const Modal: React.FC<{ 

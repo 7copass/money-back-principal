@@ -135,3 +135,26 @@ export interface TransactionDetailed extends Transaction {
         totalPrice: number;
     }>;
 }
+
+// RFM Analysis Types
+export interface RFMClient {
+    id: string;
+    name: string;
+    phone: string;
+    email?: string;
+    lastPurchaseDate: string;
+    totalPurchases: number;
+    totalSpent: number;
+    recency: number; // dias
+    rScore: number;
+    fScore: number;
+    mScore: number;
+    segment: string;
+}
+
+export interface RFMData {
+    clients: RFMClient[];
+    segments: Record<string, { count: number; revenue: number; percentage: number }>;
+    totalRevenue: number;
+    totalClients: number;
+}

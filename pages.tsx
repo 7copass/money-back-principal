@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { User, Company, Transaction, Campaign, Client, Product } from './types';
 import { UserRole, CompanyPlan, AreaOfActivity } from './types';
 import { api } from './services';
-import { Button, Card, Icons, Input, StatCard, CompanyTable, SalesChart, ClientRanking, TransactionHistory, CampaignCard, Modal, ConfirmationModal, Textarea, Podium, Select } from './components';
+import { Button, Card, Icons, Input, StatCard, CompanyTable, SalesChart, ClientRanking, TransactionHistory, CampaignCard, Modal, ConfirmationModal, Textarea, Podium, Select, Loader } from './components';
 import { NotificationHistoryTab } from './NotificationHistoryTab';
 import { ClientDetailsModal } from './ClientDetailsModal';
 import { AdvancedFiltersComponent } from './AdvancedFilters';
+import { ABCAnalysis } from './ABCAnalysis';
+import { RFMAnalysis } from './RFMAnalysis';
 
 // LOGIN PAGE
 export const LoginPage: React.FC = () => {
@@ -81,7 +83,7 @@ const ManagerDashboard: React.FC<{ user: User }> = ({ user }) => {
             });
     }, []);
 
-    if (loading) return <div className="p-4 sm:p-6 text-center text-gray-500">Carregando dados do gestor...</div>;
+    if (loading) return <Loader className="p-4 sm:p-6 text-brand-primary" text="Carregando dados do gestor..." />;
     if (!data || !metrics) return <div className="p-4 sm:p-6 text-center text-red-500">Erro ao carregar dados</div>;
 
     // Função auxiliar para formatar último uso
@@ -506,7 +508,7 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
             )}
 
             {loading ? (
-                <div className="text-center py-8 text-gray-500">Carregando templates...</div>
+                <Loader className="py-8 text-brand-primary" text="Carregando templates..." />
             ) : (
                 <div className="space-y-4">
                     {templates.map((template) => (
@@ -2651,6 +2653,7 @@ export const ProductsPage: React.FC<{ user: User }> = ({ user }) => {
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+    const [activeTab, setActiveTab] = useState<'list' | 'abc'>('list');
 
     const fetchProducts = useCallback(async () => {
         if (!user.companyId) return;
@@ -2702,59 +2705,84 @@ export const ProductsPage: React.FC<{ user: User }> = ({ user }) => {
 
     return (
         <main className="p-4 sm:p-6 space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h1 className="text-2xl font-bold">Produtos e Serviços</h1>
-                <Button onClick={handleAdd} className="inline-flex items-center">
-                    <Icons.PlusCircle className="w-5 h-5 mr-2" />
-                    Adicionar Produto/Serviço
-                </Button>
+                
+                <div className="flex gap-2">
+                     <div className="bg-gray-100 p-1 rounded-lg flex">
+                        <button
+                            onClick={() => setActiveTab('list')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'list' ? 'bg-white shadow text-brand-primary' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Lista
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('abc')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'abc' ? 'bg-white shadow text-brand-primary' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Curva ABC 📊
+                        </button>
+                    </div>
+
+                    {activeTab === 'list' && (
+                        <Button onClick={handleAdd} className="inline-flex items-center">
+                            <Icons.PlusCircle className="w-5 h-5 mr-2" />
+                            Adicionar
+                        </Button>
+                    )}
+                </div>
             </div>
-            {loading ? <p>Carregando...</p> : (
-                <Card>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left min-w-[600px]">
-                            <thead>
-                                <tr className="border-b bg-gray-50">
-                                    <th className="p-3">Nome</th>
-                                    <th className="p-3">Categoria</th>
-                                    <th className="p-3">Descrição</th>
-                                    <th className="p-3">Status</th>
-                                    <th className="p-3">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {products.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={5} className="p-8 text-center text-gray-500">
-                                            Nenhum produto cadastrado. Clique em "Adicionar" para começar.
-                                        </td>
+            
+            {activeTab === 'list' ? (
+                loading ? <Loader className="py-12 text-brand-primary" text="Carregando produtos..." /> : (
+                    <Card>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left min-w-[600px]">
+                                <thead>
+                                    <tr className="border-b bg-gray-50">
+                                        <th className="p-3">Nome</th>
+                                        <th className="p-3">Categoria</th>
+                                        <th className="p-3">Descrição</th>
+                                        <th className="p-3">Status</th>
+                                        <th className="p-3">Ações</th>
                                     </tr>
-                                ) : (
-                                    products.map(p => (
-                                        <tr key={p.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-3 font-semibold">{p.name}</td>
-                                            <td className="p-3 text-gray-600">{p.category || '-'}</td>
-                                            <td className="p-3 text-gray-500 text-sm">{p.description || '-'}</td>
-                                            <td className="p-3">
-                                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                                                    {p.isActive ? 'Ativo' : 'Inativo'}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 flex gap-2">
-                                                <button onClick={() => handleEdit(p)} className="text-brand-primary hover:bg-brand-primary/10 p-2 rounded">
-                                                    <Icons.Edit className="w-5 h-5" />
-                                                </button>
-                                                <button onClick={() => handleDelete(p)} className="text-red-600 hover:bg-red-50 p-2 rounded">
-                                                    <Icons.Trash className="w-5 h-5" />
-                                                </button>
+                                </thead>
+                                <tbody>
+                                    {products.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} className="p-8 text-center text-gray-500">
+                                                Nenhum produto cadastrado. Clique em "Adicionar" para começar.
                                             </td>
                                         </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
+                                    ) : (
+                                        products.map(p => (
+                                            <tr key={p.id} className="border-b hover:bg-gray-50">
+                                                <td className="p-3 font-semibold">{p.name}</td>
+                                                <td className="p-3 text-gray-600">{p.category || '-'}</td>
+                                                <td className="p-3 text-gray-500 text-sm">{p.description || '-'}</td>
+                                                <td className="p-3">
+                                                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                                                        {p.isActive ? 'Ativo' : 'Inativo'}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 flex gap-2">
+                                                    <button onClick={() => handleEdit(p)} className="text-brand-primary hover:bg-brand-primary/10 p-2 rounded">
+                                                        <Icons.Edit className="w-5 h-5" />
+                                                    </button>
+                                                    <button onClick={() => handleDelete(p)} className="text-red-600 hover:bg-red-50 p-2 rounded">
+                                                        <Icons.Trash className="w-5 h-5" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                )
+            ) : (
+                user.companyId && <ABCAnalysis companyId={user.companyId} />
             )}
             <ProductFormModal isOpen={isModalOpen} onClose={(saved) => { setIsModalOpen(false); if (saved) fetchProducts(); }} onSave={handleSave} product={editingProduct} />
         </main>
@@ -2768,7 +2796,7 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
-    const [activeTab, setActiveTab] = useState<'clients' | 'expiring'>('clients');
+    const [activeTab, setActiveTab] = useState<'clients' | 'expiring' | 'rfm'>('clients');
 
     // New state for client details
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -2860,6 +2888,12 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                         >
                             Vencimentos Próximos
                         </button>
+                        <button
+                            onClick={() => setActiveTab('rfm')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'rfm' ? 'bg-white shadow text-brand-primary' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Matriz RFM 🎯
+                        </button>
                     </div>
                     {activeTab === 'clients' && (
                         <Button onClick={handleAdd} className="inline-flex items-center">
@@ -2886,7 +2920,9 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                 </div>
             )}
 
-            {loading ? <p>Carregando...</p> : activeTab === 'clients' ? (
+            {loading ? <p>Carregando...</p> : activeTab === 'rfm' ? (
+                user.companyId && <RFMAnalysis companyId={user.companyId} />
+            ) : activeTab === 'clients' ? (
                 <Card>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left min-w-[600px]">

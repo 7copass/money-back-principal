@@ -3,7 +3,7 @@ import React, { useState, createContext, useContext, useCallback, useMemo, useEf
 import type { User } from './types';
 import { UserRole } from './types';
 import { LoginPage, Dashboard } from './pages';
-import { Sidebar, Header, Icons } from './components';
+import { Sidebar, Header, Icons, Loader } from './components';
 import { supabase } from './supabaseClient';
 import { api } from './services';
 
@@ -170,10 +170,7 @@ const AppContent: React.FC = () => {
     if (loading) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-brand-darkest p-4 text-center">
-                <div className="mb-6 animate-bounce text-brand-primary">
-                    <Icons.Logo width="64" height="64" />
-                </div>
-                <p className="text-white text-lg font-semibold animate-pulse mb-4">Carregando...</p>
+                <Loader className="text-brand-primary" text="Carregando..." />
 
                 {showRefresh && (
                     <div className="animate-fade-in">

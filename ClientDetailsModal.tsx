@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Client, ClientAnalytics, TransactionDetailed } from './types';
 import { api } from './services';
-import { Button, Card, Icons, Modal } from './components';
+import { Button, Card, Icons, Modal, Loader } from './components';
 
 interface ClientDetailsModalProps {
     client: Client | null;
@@ -78,9 +78,7 @@ export const ClientDetailsModal: React.FC<ClientDetailsModalProps> = ({ client, 
                 </div>
 
                 {loading ? (
-                    <div className="flex justify-center items-center py-12">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-primary"></div>
-                    </div>
+                    <Loader className="py-12 text-brand-primary" />
                 ) : (
                     <>
                         {/* Tab: Informações */}
