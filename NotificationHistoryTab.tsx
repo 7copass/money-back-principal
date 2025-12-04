@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from './services';
-import { Card } from './components';
+import { Card, Loader } from './components';
 
 interface NotificationHistoryTabProps {
     companyId: string;
@@ -38,12 +38,7 @@ export const NotificationHistoryTab: React.FC<NotificationHistoryTabProps> = ({ 
     };
 
     if (loading) {
-        return (
-            <Card className="p-8 text-center">
-                <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                <p className="text-gray-500">Carregando histórico...</p>
-            </Card>
-        );
+        return <Loader className="py-12 text-brand-primary" text="Carregando histórico..." />;
     }
 
     if (history.length === 0) {

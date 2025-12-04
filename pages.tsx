@@ -1250,7 +1250,7 @@ const HistoryPage: React.FC<{ user: User }> = ({ user }) => {
         );
     };
 
-    if (!data) return <div className="p-4 sm:p-6 text-center text-gray-500">Carregando histórico...</div>;
+    if (!data) return <Loader className="p-4 sm:p-6 text-brand-primary" text="Carregando histórico..." />;
 
     return (
         <main className="p-4 sm:p-6 space-y-6">
@@ -1323,7 +1323,7 @@ export const RankingPage: React.FC<{ user: User }> = ({ user }) => {
 
     const renderContent = () => {
         if (loading) {
-            return <div className="text-center py-12 text-gray-500">Carregando ranking...</div>;
+            return <Loader className="py-12 text-brand-primary" text="Carregando ranking..." />;
         }
 
         const rankingsMap = {
@@ -2257,7 +2257,7 @@ export const CampaignsPage: React.FC<{ user: User }> = ({ user }) => {
             </div>
 
             {loading && campaigns.length === 0 ? (
-                <p>Carregando campanhas...</p>
+                <Loader className="py-12 text-brand-primary" text="Carregando campanhas..." />
             ) : campaigns.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {campaigns.map(campaign => <CampaignCard key={campaign.id} campaign={campaign} onEdit={handleEdit} onDelete={handleDelete} />)}
@@ -2461,7 +2461,7 @@ export const CompaniesPage: React.FC<{ user: User }> = ({ user }) => {
             </div>
 
             {loading && companies.length === 0 ? (
-                <p>Carregando empresas...</p>
+                <Loader className="py-12 text-brand-primary" text="Carregando empresas..." />
             ) : (
                 <Card>
                     <div className="overflow-x-auto">
@@ -2920,7 +2920,7 @@ export const ClientsPage: React.FC<{ user: User }> = ({ user }) => {
                 </div>
             )}
 
-            {loading ? <p>Carregando...</p> : activeTab === 'rfm' ? (
+            {loading ? <Loader className="py-12 text-brand-primary" text="Carregando clientes..." /> : activeTab === 'rfm' ? (
                 user.companyId && <RFMAnalysis companyId={user.companyId} />
             ) : activeTab === 'clients' ? (
                 <Card>
@@ -3242,7 +3242,7 @@ export const UsersPage: React.FC<{ user: User }> = ({ user }) => {
                 </Button>
             </div>
 
-            {loading ? <p className="text-center py-8 text-gray-500">Carregando lista de usuários...</p> : (
+            {loading ? <Loader className="py-12 text-brand-primary" text="Carregando lista de usuários..." /> : (
                 <Card>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left min-w-[600px]">
@@ -3347,7 +3347,7 @@ export const PermissionsPage: React.FC<{ user: User }> = ({ user }) => {
                     Adicionar Usuário
                 </Button>
             </div>
-            {loading ? <p>Carregando...</p> : (
+            {loading ? <Loader className="py-12 text-brand-primary" text="Carregando permissões..." /> : (
                 <Card>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left min-w-[600px]">
