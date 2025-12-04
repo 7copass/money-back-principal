@@ -1,11 +1,13 @@
 
-import React, { useState, createContext, useContext, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, createContext, useContext, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { User } from './types';
 import { UserRole } from './types';
 import { LoginPage, Dashboard } from './pages';
 import { Sidebar, Header, Icons, Loader } from './components';
 import { supabase } from './supabaseClient';
 import { api } from './services';
+import { storage } from './utils/storage';
+import { registerDevHotkeys, logDevInfo, checkStaleData, forceReload } from './utils/dev-helpers';
 
 interface AuthContextType {
     user: User | null;
@@ -26,9 +28,11 @@ export const useAuth = () => {
 const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         let timeoutId: NodeJS.Timeout;
+        let cleanupHotkeys: (() => void) | null = null;
 
         // PROTEÇÃO: Timeout máximo de 10 segundos
         const forceLoadingEnd = () => {
@@ -38,37 +42,57 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
         timeoutId = setTimeout(forceLoadingEnd, 10000);
 
+        // Limpa dados expirados ao iniciar
+        console.log("🧹 Limpando dados expirados do storage...");
+        storage.cleanExpiredData();
+
+        // Verifica dados obsoletos
+        const staleCheck = checkStaleData();
+        if (staleCheck.hasStaleData) {
+            console.warn(`⚠️ Dados com ${staleCheck.oldestAge?.toFixed(1)}h detectados`);
+        }
+
+        // Registra hotkeys de desenvolvimento
+        cleanupHotkeys = registerDevHotkeys();
+        
+        // Log de info de desenvolvimento
+        logDevInfo();
+
         // Initial load
         const initSession = async () => {
             try {
-                console.log("🔄 Iniciando verificação de sessão...");
+                console.log("🔄 [AUTH] Iniciando verificação de sessão...");
+                setLoading(true); // Garante que está em loading
+                
                 const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
                 if (sessionError) {
-                    console.error("❌ Erro ao buscar sessão:", sessionError);
-                    clearTimeout(timeoutId);
-                    setLoading(false);
+                    console.error("❌ [AUTH] Erro ao buscar sessão:", sessionError);
                     return;
                 }
 
                 if (session) {
-                    console.log("✅ Sessão encontrada, buscando perfil...");
+                    console.log("✅ [AUTH] Sessão encontrada, buscando perfil...");
                     const profile = await api.getProfile(session.user.id);
 
                     if (profile) {
-                        console.log("✅ Perfil carregado:", profile.name);
+                        console.log("✅ [AUTH] Perfil carregado:", profile.name);
                         setUser(profile);
                     } else {
-                        console.warn("⚠️ Perfil não encontrado, fazendo logout...");
+                        console.warn("⚠️ [AUTH] Perfil não encontrado, fazendo logout...");
                         await supabase.auth.signOut();
+                        // Limpa dados do app quando não há usuário
+                        storage.clearAllAppData();
                     }
                 } else {
-                    console.log("ℹ️ Nenhuma sessão ativa");
+                    console.log("ℹ️ [AUTH] Nenhuma sessão ativa");
+                    // Limpa dados do app quando não há sessão
+                    storage.clearAllAppData();
                 }
             } catch (error) {
-                console.error("❌ Erro crítico ao inicializar sessão:", error);
+                console.error("❌ [AUTH] Erro crítico ao inicializar sessão:", error);
             } finally {
-                console.log("✅ Finalizando loading");
+                console.log("✅ [AUTH] Finalizando loading no finally");
                 clearTimeout(timeoutId);
                 setLoading(false);
             }
@@ -76,34 +100,66 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
         initSession();
 
-        // Listen for changes
+        // Listen for changes com DEBOUNCE para evitar múltiplas chamadas
         const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log("🔔 Auth state change:", event);
+            console.log("🔔 [AUTH] Auth state change:", event);
 
-            if (event === 'SIGNED_IN' && session) {
-                // Não bloqueia a UI com loading(true) para atualizações de sessão em background
-                const profile = await api.getProfile(session.user.id);
-                if (profile) {
-                    console.log("✅ Perfil atualizado:", profile.name);
-                    setUser(profile);
-                }
-                setLoading(false);
-            } else if (event === 'SIGNED_OUT') {
-                console.log("👋 Usuário deslogado");
-                setUser(null);
-                setLoading(false);
+            // Limpa timer anterior se existir
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
             }
+
+            // Debounce de 300ms para evitar chamadas em rápida sucessão
+            debounceTimerRef.current = setTimeout(async () => {
+                try {
+                    if (event === 'SIGNED_IN' && session) {
+                        console.log("✅ [AUTH] SIGNED_IN - Buscando perfil...");
+                        const profile = await api.getProfile(session.user.id);
+                        if (profile) {
+                            console.log("✅ [AUTH] Perfil atualizado:", profile.name);
+                            setUser(profile);
+                        }
+                    } else if (event === 'SIGNED_OUT') {
+                        console.log("👋 [AUTH] SIGNED_OUT - Limpando dados...");
+                        setUser(null);
+                        // Limpa dados do app ao deslogar
+                        storage.clearAllAppData();
+                    } else if (event === 'TOKEN_REFRESHED') {
+                        console.log("🔄 [AUTH] TOKEN_REFRESHED - Token atualizado");
+                        // Não precisa fazer nada, apenas log
+                    }
+                } catch (error) {
+                    console.error("❌ [AUTH] Erro no listener:", error);
+                } finally {
+                    // SEMPRE finaliza loading no finally
+                    console.log("✅ [AUTH] Finalizando loading no listener");
+                    setLoading(false);
+                }
+            }, 300);
         });
 
+        // Cleanup ao desmontar
         return () => {
+            console.log("🧹 [AUTH] Cleanup do AuthProvider");
             clearTimeout(timeoutId);
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+            // Cleanup do listener
             authListener.subscription.unsubscribe();
+            // Cleanup dos hotkeys
+            if (cleanupHotkeys) {
+                cleanupHotkeys();
+            }
         };
     }, []);
 
 
     const logout = useCallback(async () => {
+        console.log("👋 [AUTH] Executando logout...");
         await supabase.auth.signOut();
+        // Limpa dados do app ao fazer logout manual
+        storage.clearAllAppData();
     }, []);
 
     const value = useMemo(() => ({ user, logout, loading }), [user, logout, loading]);
@@ -150,6 +206,9 @@ const AppContent: React.FC = () => {
     const { user, loading, logout } = useAuth();
     const [currentPage, setCurrentPage] = useState('dashboard');
     const [showRefresh, setShowRefresh] = useState(false);
+    const [showDevPanel, setShowDevPanel] = useState(false);
+
+    const IS_DEV = import.meta.env.VITE_DEV_MODE === 'true' || import.meta.env.DEV;
 
     useEffect(() => {
         if (user) {
@@ -166,6 +225,16 @@ const AppContent: React.FC = () => {
             setShowRefresh(false);
         }
     }, [loading]);
+
+    // Verifica dados obsoletos ao montar (apenas em dev)
+    useEffect(() => {
+        if (IS_DEV && user) {
+            const staleData = checkStaleData();
+            if (staleData.hasStaleData && staleData.oldestAge && staleData.oldestAge > 12) {
+                console.warn('⚠️ Dados obsoletos detectados. Considere limpar o cache usando Ctrl+Shift+R');
+            }
+        }
+    }, [user, IS_DEV]);
 
     if (loading) {
         return (
@@ -194,6 +263,69 @@ const AppContent: React.FC = () => {
         <>
             <NotificationScheduler user={user} />
             <DashboardLayout user={user} currentPage={currentPage} onNavigate={setCurrentPage} />
+            
+            {/* Botão de Debug (apenas em DEV) */}
+            {IS_DEV && (
+                <div className="fixed bottom-4 right-4 z-50">
+                    <button
+                        onClick={() => setShowDevPanel(!showDevPanel)}
+                        className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-lg shadow-lg text-xs font-bold flex items-center gap-2 transition-all"
+                        title="Debug Tools (Dev Only)"
+                    >
+                        🛠️ DEV
+                    </button>
+                    
+                    {showDevPanel && (
+                        <div className="absolute bottom-14 right-0 bg-white rounded-lg shadow-2xl p-4 w-64 border border-gray-200">
+                            <div className="flex justify-between items-center mb-3 pb-2 border-b">
+                                <h3 className="font-bold text-gray-800 text-sm">🛠️ Debug Tools</h3>
+                                <button onClick={() => setShowDevPanel(false)} className="text-gray-500 hover:text-gray-700">
+                                    ✕
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm('Limpar todo cache e recarregar?')) {
+                                            forceReload();
+                                        }
+                                    }}
+                                    className="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-xs font-medium"
+                                >
+                                    🔄 Force Reload
+                                </button>
+                                
+                                <button
+                                    onClick={() => {
+                                        storage.cleanExpiredData();
+                                        alert('Dados expirados limpos!');
+                                    }}
+                                    className="w-full bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-xs font-medium"
+                                >
+                                    🧹 Limpar Expirados
+                                </button>
+                                
+                                <button
+                                    onClick={() => {
+                                        const info = storage.getStorageInfo();
+                                        alert(`Storage Info:\nTotal Keys: ${info.totalKeys}\nApp Keys: ${info.appKeys}\nOldest: ${info.oldestTimestamp ? new Date(info.oldestTimestamp).toLocaleString() : 'N/A'}`);
+                                    }}
+                                    className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-xs font-medium"
+                                >
+                                    📊 Storage Info
+                                </button>
+                            </div>
+                            
+                            <div className="mt-3 pt-3 border-t text-xs text-gray-500">
+                                <p><strong>Hotkeys:</strong></p>
+                                <p>Ctrl+Shift+R: Force Reload</p>
+                                <p>Ctrl+Shift+I: Storage Info</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </>
     );
 };
