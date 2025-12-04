@@ -1618,7 +1618,7 @@ export const api = {
                     notification_delay_min: settings.delayMin,
                     notification_delay_max: settings.delayMax,
                     notification_schedule_hour: settings.scheduleHour,
-                    notification_schedule_minute: settings.scheduleMinute || 0
+                    notification_schedule_minute: parseInt(settings.scheduleMinute) || 0
                 })
                 .eq('id', companyId)
                 .select()

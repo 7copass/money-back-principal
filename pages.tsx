@@ -400,7 +400,7 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
                 delayMin: settings.notification_delay_min,
                 delayMax: settings.notification_delay_max,
                 scheduleHour: settings.notification_schedule_hour,
-                scheduleMinute: settings.notification_schedule_minute || 0
+                scheduleMinute: parseInt(settings.notification_schedule_minute) || 0
             });
             alert('Configurações salvas com sucesso!');
         } catch (error) {
