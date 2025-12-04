@@ -206,7 +206,6 @@ const AppContent: React.FC = () => {
     const { user, loading, logout } = useAuth();
     const [currentPage, setCurrentPage] = useState('dashboard');
     const [showRefresh, setShowRefresh] = useState(false);
-    const [showDevPanel, setShowDevPanel] = useState(false);
 
     const IS_DEV = import.meta.env.VITE_DEV_MODE === 'true' || import.meta.env.DEV;
 
@@ -226,12 +225,12 @@ const AppContent: React.FC = () => {
         }
     }, [loading]);
 
-    // Verifica dados obsoletos ao montar (apenas em dev)
+    // Verifica dados obsoletos ao montar (apenas em dev) - AUTOMÁTICO, SEM UI
     useEffect(() => {
         if (IS_DEV && user) {
             const staleData = checkStaleData();
             if (staleData.hasStaleData && staleData.oldestAge && staleData.oldestAge > 12) {
-                console.warn('⚠️ Dados obsoletos detectados. Considere limpar o cache usando Ctrl+Shift+R');
+                console.warn('⚠️ Dados obsoletos detectados. Use Ctrl+Shift+R se houver problemas.');
             }
         }
     }, [user, IS_DEV]);
@@ -263,69 +262,6 @@ const AppContent: React.FC = () => {
         <>
             <NotificationScheduler user={user} />
             <DashboardLayout user={user} currentPage={currentPage} onNavigate={setCurrentPage} />
-            
-            {/* Botão de Debug (apenas em DEV) */}
-            {IS_DEV && (
-                <div className="fixed bottom-4 right-4 z-50">
-                    <button
-                        onClick={() => setShowDevPanel(!showDevPanel)}
-                        className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-lg shadow-lg text-xs font-bold flex items-center gap-2 transition-all"
-                        title="Debug Tools (Dev Only)"
-                    >
-                        🛠️ DEV
-                    </button>
-                    
-                    {showDevPanel && (
-                        <div className="absolute bottom-14 right-0 bg-white rounded-lg shadow-2xl p-4 w-64 border border-gray-200">
-                            <div className="flex justify-between items-center mb-3 pb-2 border-b">
-                                <h3 className="font-bold text-gray-800 text-sm">🛠️ Debug Tools</h3>
-                                <button onClick={() => setShowDevPanel(false)} className="text-gray-500 hover:text-gray-700">
-                                    ✕
-                                </button>
-                            </div>
-                            
-                            <div className="space-y-2">
-                                <button
-                                    onClick={() => {
-                                        if (window.confirm('Limpar todo cache e recarregar?')) {
-                                            forceReload();
-                                        }
-                                    }}
-                                    className="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-xs font-medium"
-                                >
-                                    🔄 Force Reload
-                                </button>
-                                
-                                <button
-                                    onClick={() => {
-                                        storage.cleanExpiredData();
-                                        alert('Dados expirados limpos!');
-                                    }}
-                                    className="w-full bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-xs font-medium"
-                                >
-                                    🧹 Limpar Expirados
-                                </button>
-                                
-                                <button
-                                    onClick={() => {
-                                        const info = storage.getStorageInfo();
-                                        alert(`Storage Info:\nTotal Keys: ${info.totalKeys}\nApp Keys: ${info.appKeys}\nOldest: ${info.oldestTimestamp ? new Date(info.oldestTimestamp).toLocaleString() : 'N/A'}`);
-                                    }}
-                                    className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-xs font-medium"
-                                >
-                                    📊 Storage Info
-                                </button>
-                            </div>
-                            
-                            <div className="mt-3 pt-3 border-t text-xs text-gray-500">
-                                <p><strong>Hotkeys:</strong></p>
-                                <p>Ctrl+Shift+R: Force Reload</p>
-                                <p>Ctrl+Shift+I: Storage Info</p>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
         </>
     );
 };
