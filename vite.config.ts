@@ -59,6 +59,25 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        // Proxy para Evolution API (contornar CORS em desenvolvimento)
+        proxy: {
+          '/evolution-api': {
+            target: env.VITE_EVOLUTION_API_URL || 'https://api.leaderaperformance.com.br',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/evolution-api/, ''),
+            configure: (proxy, _options) => {
+              proxy.on('error', (err, _req, _res) => {
+                console.log('proxy error', err);
+              });
+              proxy.on('proxyReq', (proxyReq, req, _res) => {
+                console.log('Sending Request to the Target:', req.method, req.url);
+              });
+              proxy.on('proxyRes', (proxyRes, req, _res) => {
+                console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
+              });
+            },
+          },
+        },
         // Headers para prevenir cache em desenvolvimento
         headers: isDev ? {
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',

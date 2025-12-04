@@ -1218,11 +1218,31 @@ export const api = {
     evolution: {
         // Configuração da Evolution API (usar variáveis de ambiente)
         getConfig: (companyId?: string) => {
-            const baseUrl = import.meta.env.VITE_EVOLUTION_API_URL || 'http://localhost:8080';
+            const isDev = import.meta.env.DEV;
+            // Em desenvolvimento, usa proxy para evitar CORS
+            // Em produção, usa a URL direta
+            const baseUrl = isDev 
+                ? '/evolution-api' 
+                : (import.meta.env.VITE_EVOLUTION_API_URL || 'https://api.leaderaperformance.com.br');
             const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY || '';
             const prefix = import.meta.env.VITE_WHATSAPP_INSTANCE_PREFIX || 'moneyback';
+            
+            // DEBUG: Log para verificar se as variáveis estão carregadas
+            console.log('[Evolution Config] Variables loaded:', {
+                isDev,
+                hasUrl: !!import.meta.env.VITE_EVOLUTION_API_URL,
+                hasKey: !!import.meta.env.VITE_EVOLUTION_API_KEY,
+                url: baseUrl,
+                keyLength: apiKey?.length || 0
+            });
+            
             // Se tiver companyId, usa moneyback-{id}, senão usa moneyback-default
             const instanceName = companyId ? `${prefix}-${companyId}` : `${prefix}-default`;
+
+            // Validação: Se não tiver API Key, lança erro claro
+            if (!import.meta.env.VITE_EVOLUTION_API_KEY) {
+                throw new Error('Configure a variável de ambiente: VITE_EVOLUTION_API_KEY');
+            }
 
             return { apiUrl: baseUrl, apiKey, instanceName };
         },
