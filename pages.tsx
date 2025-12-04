@@ -399,7 +399,8 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
                 enabled: settings.notifications_enabled,
                 delayMin: settings.notification_delay_min,
                 delayMax: settings.notification_delay_max,
-                scheduleHour: settings.notification_schedule_hour
+                scheduleHour: settings.notification_schedule_hour,
+                scheduleMinute: settings.notification_schedule_minute || 0
             });
             alert('Configurações salvas com sucesso!');
         } catch (error) {
@@ -463,7 +464,7 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
                         </div>
 
                         {settings.notifications_enabled && (
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Envio (Hora)</label>
                                     <Input
@@ -473,7 +474,18 @@ const NotificationTemplatesSection: React.FC<{ companyId: string }> = ({ company
                                         min="0"
                                         max="23"
                                     />
-                                    <p className="text-xs text-gray-500 mt-1">Hora do dia para iniciar (0-23)</p>
+                                    <p className="text-xs text-gray-500 mt-1">Hora do dia (0-23)</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Minuto</label>
+                                    <Input
+                                        type="number"
+                                        value={settings.notification_schedule_minute || 0}
+                                        onChange={(e) => setSettings({ ...settings, notification_schedule_minute: parseInt(e.target.value) })}
+                                        min="0"
+                                        max="59"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Minuto (0-59)</p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Delay Mínimo (segundos)</label>

@@ -1595,7 +1595,7 @@ export const api = {
         getSettings: async (companyId: string) => {
             const { data, error } = await supabase
                 .from('companies')
-                .select('notifications_enabled, notification_delay_min, notification_delay_max, notification_schedule_hour')
+                .select('notifications_enabled, notification_delay_min, notification_delay_max, notification_schedule_hour, notification_schedule_minute')
                 .eq('id', companyId)
                 .single();
 
@@ -1604,7 +1604,8 @@ export const api = {
                 notifications_enabled: true,
                 notification_delay_min: 30,
                 notification_delay_max: 60,
-                notification_schedule_hour: 9
+                notification_schedule_hour: 9,
+                notification_schedule_minute: 0
             };
         },
 
@@ -1616,7 +1617,8 @@ export const api = {
                     notifications_enabled: settings.enabled,
                     notification_delay_min: settings.delayMin,
                     notification_delay_max: settings.delayMax,
-                    notification_schedule_hour: settings.scheduleHour
+                    notification_schedule_hour: settings.scheduleHour,
+                    notification_schedule_minute: settings.scheduleMinute || 0
                 })
                 .eq('id', companyId)
                 .select()

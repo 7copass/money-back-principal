@@ -64,6 +64,7 @@ export default defineConfig(({ mode }) => {
           '/evolution-api': {
             target: env.VITE_EVOLUTION_API_URL || 'https://api.leaderaperformance.com.br',
             changeOrigin: true,
+            secure: false, // Desabilita verificação SSL em desenvolvimento
             rewrite: (path) => path.replace(/^\/evolution-api/, ''),
             configure: (proxy, _options) => {
               proxy.on('error', (err, _req, _res) => {
