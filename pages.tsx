@@ -8,6 +8,7 @@ import { ClientDetailsModal } from './ClientDetailsModal';
 import { AdvancedFiltersComponent } from './AdvancedFilters';
 import { ABCAnalysis } from './ABCAnalysis';
 import { RFMAnalysis } from './RFMAnalysis';
+import { ManagerMetricsDashboard } from './ManagerMetricsDashboard';
 
 // LOGIN PAGE
 export const LoginPage: React.FC = () => {
@@ -289,6 +290,9 @@ const ManagerDashboard: React.FC<{ user: User }> = ({ user }) => {
                     </table>
                 </div>
             </Card>
+
+            {/* Métricas Avançadas SaaS */}
+            <ManagerMetricsDashboard userId={user.id} />
         </main>
     );
 };
