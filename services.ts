@@ -2068,5 +2068,206 @@ export const api = {
             totalRevenue,
             totalClients
         };
+    },
+
+    // 7. MÉTRICAS AVANÇADAS PARA DASHBOARD DO GESTOR
+    getManagerDashboardMetrics: async (): Promise<any> => {
+        try {
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+            // Busca todas as empresas
+            const { data: companies, error: companiesError } = await supabase
+                .from('companies')
+                .select('*');
+
+            if (companiesError) throw companiesError;
+
+            // Busca todas as transações
+            const { data: allTransactions, error: transactionsError } = await supabase
+                .from('transactions')
+                .select('*');
+
+            if (transactionsError) throw transactionsError;
+
+            // 1. MÉTRICAS FINANCEIRAS
+            const starterPrice = 297;
+            const premiumPrice = 397;
+            
+            const mrr = companies.reduce((sum, company) => {
+                return sum + (company.plan === 'Premium' ? premiumPrice : starterPrice);
+            }, 0);
+
+            const arr = mrr * 12;
+
+            // Growth Rate (comparar MRR atual com mês passado)
+            // Para simplificar, vamos assumir crescimento baseado em novas empresas
+            const companiesThisMonth = companies.filter((c: any) => 
+                new Date(c.created_at) >= startOfMonth
+            ).length;
+            const companiesLastMonth = companies.filter((c: any) => 
+                new Date(c.created_at) >= startOfLastMonth && new Date(c.created_at) <= endOfLastMonth
+            ).length;
+            
+            const lastMonthMRR = (companies.length - companiesThisMonth) * ((starterPrice + premiumPrice) / 2);
+            const growthRate = lastMonthMRR > 0 ? ((mrr - lastMonthMRR) / lastMonthMRR) * 100 : 0;
+
+            // Churn Rate - empresas que cancelaram no último mês (simplificado - não temos campo de cancelamento)
+            // Vamos considerar churn = 0 por enquanto, pois não temos registro de cancelamentos
+            const churnRate = 0;
+
+            // 2. MÉTRICAS DE EMPRESAS
+            const totalCompanies = companies.length;
+            
+            // Empresas ativas = fizeram transação nos últimos 30 dias
+            const activeCompanyIds = new Set(
+                allTransactions
+                    .filter((t: any) => new Date(t.purchase_date) >= thirtyDaysAgo)
+                    .map((t: any) => t.company_id)
+            );
+            
+            const activeCompanies = activeCompanyIds.size;
+            const inactiveCompanies = totalCompanies - activeCompanies;
+
+            // Health Score e Empresas em Risco
+            const companiesAtRisk: any[] = [];
+            
+            companies.forEach((company: any) => {
+                const companyTransactions = allTransactions.filter((t: any) => t.company_id === company.id);
+                
+                if (companyTransactions.length === 0) {
+                    companiesAtRisk.push({
+                        id: company.id,
+                        name: company.name,
+                        healthScore: 10,
+                        daysInactive: Math.floor((now.getTime() - new Date(company.created_at).getTime()) / (1000 * 60 * 60 * 24)),
+                        lastTransaction: null,
+                        riskLevel: 'high' as const
+                    });
+                    return;
+                }
+
+                // Última transação
+                const lastTransaction = companyTransactions.sort((a: any, b: any) => 
+                    new Date(b.purchase_date).getTime() - new Date(a.purchase_date).getTime()
+                )[0];
+                
+                const daysSinceLastTransaction = Math.floor(
+                    (now.getTime() - new Date(lastTransaction.purchase_date).getTime()) / (1000 * 60 * 60 * 24)
+                );
+
+                // Health Score simplificado (0-100)
+                let healthScore = 100;
+                
+                // Penaliza por inatividade
+                if (daysSinceLastTransaction > 30) healthScore -= 40;
+                else if (daysSinceLastTransaction > 15) healthScore -= 25;
+                else if (daysSinceLastTransaction > 7) healthScore -= 10;
+                
+                // Penaliza por baixo volume
+                const last30Days = companyTransactions.filter((t: any) => 
+                    new Date(t.purchase_date) >= thirtyDaysAgo
+                ).length;
+                if (last30Days === 0) healthScore -= 30;
+                else if (last30Days < 5) healthScore -= 15;
+                
+                if (healthScore < 50) {
+                    companiesAtRisk.push({
+                        id: company.id,
+                        name: company.name,
+                        healthScore,
+                        daysInactive: daysSinceLastTransaction,
+                        lastTransaction: lastTransaction.purchase_date,
+                        riskLevel: healthScore < 30 ? 'high' : 'medium' as const
+                    });
+                }
+            });
+
+            // 3. MÉTRICAS DE CASHBACK
+            const totalCashbackGenerated = allTransactions.reduce((sum: number, t: any) => 
+                sum + (t.cashback_value || 0), 0
+            );
+
+            const redeemedTransactions = allTransactions.filter((t: any) => t.status === 'Resgatado');
+            const totalCashbackRedeemed = redeemedTransactions.reduce((sum: number, t: any) => 
+                sum + (t.cashback_value || 0), 0
+            );
+
+            const redemptionRate = totalCashbackGenerated > 0 
+                ? (totalCashbackRedeemed / totalCashbackGenerated) * 100 
+                : 0;
+
+            const pendingCashback = allTransactions
+                .filter((t: any) => t.status === 'Disponível')
+                .reduce((sum: number, t: any) => sum + (t.cashback_value || 0), 0);
+
+            const expiredCashback = allTransactions
+                .filter((t: any) => t.status === 'Expirado')
+                .reduce((sum: number, t: any) => sum + (t.cashback_value || 0), 0);
+
+            const averageTicket = allTransactions.length > 0
+                ? allTransactions.reduce((sum: number, t: any) => sum + (t.purchase_value || 0), 0) / allTransactions.length
+                : 0;
+
+            // 4. MÉTRICAS DE ENGAGAMENTO
+            // DAU/MAU simplificado (baseado em transações, não acessos ao sistema)
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const companiesActiveToday = new Set(
+                allTransactions
+                    .filter((t: any) => new Date(t.purchase_date) >= todayStart)
+                    .map((t: any) => t.company_id)
+            ).size;
+
+            const dau = companiesActiveToday;
+            const mau = activeCompanies;
+            const dauMauRatio = mau > 0 ? (dau / mau) * 100 : 0;
+
+            // Feature Adoption (simplificado - precisaria de mais dados)
+            const featureAdoption = {
+                whatsappConnected: 50, // Placeholder - precisaria verificar integração
+                activeCampaigns: 0, // Placeholder
+                productsRegistered: 80, // Placeholder
+                notificationsEnabled: 50 // Placeholder
+            };
+
+            return {
+                financial: {
+                    mrr,
+                    arr,
+                    growthRate: parseFloat(growthRate.toFixed(2)),
+                    churnRate
+                },
+                companies: {
+                    totalCompanies,
+                    activeCompanies,
+                    inactiveCompanies,
+                    companiesAtRisk: companiesAtRisk.sort((a, b) => a.healthScore - b.healthScore)
+                },
+                cashback: {
+                    totalGenerated: totalCashbackGenerated,
+                    totalRedeemed: totalCashbackRedeemed,
+                    redemptionRate: parseFloat(redemptionRate.toFixed(2)),
+                    pendingCashback,
+                    expiredCashback,
+                    averageTicket: parseFloat(averageTicket.toFixed(2))
+                },
+                engagement: {
+                    dau,
+                    mau,
+                    dauMauRatio: parseFloat(dauMauRatio.toFixed(2)),
+                    featureAdoption
+                },
+                period: {
+                    start: startOfMonth.toISOString(),
+                    end: now.toISOString()
+                }
+            };
+        } catch (error) {
+            console.error('Erro ao calcular métricas do gestor:', error);
+            throw error;
+        }
     }
 };
