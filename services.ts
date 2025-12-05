@@ -1,6 +1,7 @@
 
 import { User, UserRole, Company, CompanyPlan, Transaction, Campaign, Client, AreaOfActivity, AdvancedFilters, ClientAnalytics, TransactionDetailed, RFMData, RFMClient } from './types';
 import { supabase } from './supabaseClient';
+import { sendWelcomeEmail, sendCashbackEmail, sendCashbackRedeemedEmail } from './src/services/emailService';
 
 // --- CORE API SERVICES ---
 // Agora utilizamos RPCs (Remote Procedure Calls) para garantir estabilidade no login e evitar RLS errors.
@@ -521,6 +522,30 @@ export const api = {
 
         const { data, error } = await supabase.from('clients').insert([payload]).select().single();
         if (error) throw error;
+
+        // ENVIAR EMAIL DE BOAS-VINDAS
+        if (data.email) {
+            // Buscar nome da empresa
+            const { data: companyData } = await supabase
+                .from('companies')
+                .select('name')
+                .eq('id', companyId)
+                .single();
+            
+            const companyName = companyData?.name || 'Fidelify';
+            
+            // Enviar email (fire and forget)
+            sendWelcomeEmail({
+                to: data.email,
+                name: data.name,
+                companyName: companyName
+            }).then(() => {
+                console.log('✅ Email de boas-vindas enviado para:', data.email);
+            }).catch(err => {
+                console.error('❌ Erro ao enviar email de boas-vindas:', err);
+            });
+        }
+
         return { ...data, lastPurchase: data.last_purchase, totalCashback: data.total_cashback } as Client;
     },
 
@@ -949,6 +974,40 @@ export const api = {
         // Atualiza saldo do cliente
         await api.updateClientCashback(data.clientId, data.cashbackValue);
 
+        // ENVIAR EMAIL DE CASHBACK RECEBIDO
+        if (data.cashbackValue > 0 && data.clientId) {
+            // Buscar dados do cliente
+            const { data: clientData } = await supabase
+                .from('clients')
+                .select('name, email, total_cashback')
+                .eq('id', data.clientId)
+                .single();
+            
+            if (clientData?.email) {
+                // Buscar nome da empresa
+                const { data: companyData } = await supabase
+                    .from('companies')
+                    .select('name')
+                    .eq('id', companyId)
+                    .single();
+                
+                const companyName = companyData?.name || 'Fidelify';
+                
+                // Enviar email (fire and forget - não bloqueia)
+                sendCashbackEmail({
+                    to: clientData.email,
+                    clientName: clientData.name,
+                    cashbackAmount: data.cashbackValue,
+                    cashbackBalance: clientData.total_cashback,
+                    companyName: companyName
+                }).then(() => {
+                    console.log('✅ Email de cashback enviado para:',  clientData.email);
+                }).catch(err => {
+                    console.error('❌ Erro ao enviar email de cashback:', err);
+                });
+            }
+        }
+
         return result as any;
     },
 
@@ -1189,6 +1248,13 @@ export const api = {
     },
 
     redeemCashback: async (companyId: string, clientId: string, sellerId: string, sellerName: string, availableCashback: number, purchaseValue: number) => {
+        // Buscar dados do cliente ANTES de zerar o saldo
+        const { data: clientData } = await supabase
+            .from('clients')
+            .select('name, email, total_cashback')
+            .eq('id', clientId)
+            .single();
+
         // 1. Zerar o cashback do cliente
         const { error: clientError } = await supabase
             .from('clients')
@@ -1210,6 +1276,31 @@ export const api = {
             purchase_date: new Date(),
             status: 'Resgatado'
         }]);
+
+        // 3. ENVIAR EMAIL DE CONFIRMAÇÃO DE RESGATE
+        if (clientData?.email) {
+            // Buscar nome da empresa
+            const { data: companyData } = await supabase
+                .from('companies')
+                .select('name')
+                .eq('id', companyId)
+                .single();
+            
+            const companyName = companyData?.name || 'Fidelify';
+            
+            // Enviar email (fire and forget)
+            sendCashbackRedeemedEmail({
+                to: clientData.email,
+                clientName: clientData.name,
+                redeemedAmount: availableCashback,
+                remainingBalance: 0, // Saldo zerado após resgate
+                companyName: companyName
+            }).then(() => {
+                console.log('✅ Email de resgate enviado para:', clientData.email);
+            }).catch(err => {
+                console.error('❌ Erro ao enviar email de resgate:', err);
+            });
+        }
 
         return !transError;
     },

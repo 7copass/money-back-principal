@@ -374,54 +374,67 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
         setLoading(true);
         setSuccess(false);
 
-        const formData = new FormData(e.currentTarget);
-        const data = Object.fromEntries(formData.entries());
+        try {
+            const formData = new FormData(e.currentTarget);
+            const data = Object.fromEntries(formData.entries());
 
-        const purchaseValue = parseFloat(data.value as string);
-        const cashbackPercentage = parseFloat(data.cashbackPercentage as string);
-        const cashbackValue = (purchaseValue * cashbackPercentage) / 100;
+            const purchaseValue = parseFloat(data.value as string);
+            const cashbackPercentage = parseFloat(data.cashbackPercentage as string);
+            const cashbackValue = (purchaseValue * cashbackPercentage) / 100;
 
-        const today = new Date().toISOString().split('T')[0];
+            const today = new Date().toISOString().split('T')[0];
 
+            // 1. Buscar cliente existente por telefone ou email
+            let client = await api.findClientByPhoneOrCpf(user.companyId, data.phone as string);
+            
+            let clientId: string;
 
-        await api.addTransaction(user.companyId, {
-            customerName: data.name as string,
-            customerPhone: data.phone as string,
-            customerEmail: data.email as string,
-            product: data.product as string,
-            purchaseValue: purchaseValue,
-            cashbackPercentage: cashbackPercentage,
-            cashbackValue: cashbackValue,
-            purchaseDate: today,
-            cashbackExpirationDate: data.expirationDate as string,
-            status: 'Disponível',
-            sellerId: user.id,
-            sellerName: user.name,
-        });
-
-        await api.triggerWebhook({
-            event: 'cashback_generated',
-            companyId: user.companyId,
-            companyName: companyName,
-            sellerId: user.id,
-            sellerName: user.name,
-            customer: {
-                name: data.name,
-                phone: data.phone,
-                email: data.email,
-            },
-            purchase: {
-                product: data.product,
-                value: data.value,
-                cashbackPercentage: data.cashbackPercentage,
-                cashbackValue: cashbackValue.toFixed(2),
+            // 2. Se cliente não existe, criar novo
+            if (!client) {
+                console.log('Cliente não encontrado. Criando novo cliente...');
+                const newClient = await api.addClient(user.companyId, {
+                    name: data.name as string,
+                    email: data.email as string,
+                    phone: data.phone as string,
+                    cpf: '', // Pode adicionar campo CPF no form se quiser
+                    totalCashback: 0,
+                    status: 'Ativo'
+                });
+                clientId = newClient.id;
+                console.log('✅ Cliente criado:', newClient.id);
+            } else {
+                clientId = client.client.id;
+                console.log('✅ Cliente encontrado:', client.client.id);
             }
-        });
 
-        setLoading(false);
-        setSuccess(true);
-        formRef.current?.reset();
-        setTimeout(() => setSuccess(false), 5000);
+            // 3. Criar transação com clientId vinculado
+            await api.addTransaction(user.companyId, {
+                clientId: clientId, // ← IMPORTANTE: Vincula ao cliente
+                customerName: data.name as string,
+                customerPhone: data.phone as string,
+                customerEmail: data.email as string,
+                product: data.product as string,
+                purchaseValue: purchaseValue,
+                cashbackPercentage: cashbackPercentage,
+                cashbackValue: cashbackValue,
+                purchaseDate: today,
+                cashbackExpirationDate: data.expirationDate as string,
+                status: 'Disponível',
+                sellerId: user.id,
+                sellerName: user.name,
+            });
+
+            console.log('✅ Transação criada com sucesso! Email será enviado automaticamente.');
+
+            setLoading(false);
+            setSuccess(true);
+            formRef.current?.reset();
+            setTimeout(() => setSuccess(false), 5000);
+        } catch (error) {
+            console.error('❌ Erro ao processar transação:', error);
+            setLoading(false);
+            alert('Erro ao processar transação. Verifique o console para mais detalhes.');
+        }
     };
 
     return (
