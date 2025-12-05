@@ -19,7 +19,7 @@ As seguintes variáveis foram configuradas no `.env.local`:
 
 ```bash
 VITE_SENDGRID_API_KEY=SUA_API_KEY_DO_SENDGRID_AQUI
-VITE_FROM_EMAIL=noreply@7copass.com
+VITE_FROM_EMAIL=noreply@fidelify.com.br
 ```
 
 ### 3. Verificar Remetente no SendGrid
@@ -28,8 +28,8 @@ VITE_FROM_EMAIL=noreply@7copass.com
 
 1. Acesse [https://app.sendgrid.com/settings/sender_auth](https://app.sendgrid.com/settings/sender_auth)
 2. Configure a autenticação de remetente:
-   - **Opção 1 (Recomendada)**: Verificar domínio completo (7copass.com)
-   - **Opção 2**: Verificar email individual (noreply@7copass.com)
+   - **Opção 1 (Recomendada)**: Verificar domínio completo (fidelify.com.br)
+   - **Opção 2**: Verificar email individual (noreply@fidelify.com.br)
 
 ## 📚 Funções Disponíveis
 
@@ -52,7 +52,7 @@ import { sendWelcomeEmail } from './services/emailService';
 await sendWelcomeEmail({
   to: 'cliente@exemplo.com',
   name: 'João Silva',
-  companyName: 'MoneyBack'
+  companyName: 'Fidelify'
 });
 ```
 
@@ -64,7 +64,7 @@ await sendNotificationEmail({
   to: 'cliente@exemplo.com',
   clientName: 'João Silva',
   message: 'Você tem uma nova oferta especial!',
-  companyName: 'MoneyBack'
+  companyName: 'Fidelify'
 });
 ```
 
@@ -77,7 +77,7 @@ await sendCashbackEmail({
   clientName: 'João Silva',
   cashbackAmount: 10.50,
   cashbackBalance: 50.00,
-  companyName: 'MoneyBack'
+  companyName: 'Fidelify'
 });
 ```
 
@@ -104,7 +104,7 @@ if (clientData.email) {
   await sendWelcomeEmail({
     to: clientData.email,
     name: clientData.name,
-    companyName: 'MoneyBack'
+    companyName: 'Fidelify'
   });
 }
 ```
@@ -133,7 +133,7 @@ if (transaction.cashbackAmount > 0 && clientEmail) {
     clientName: clientName,
     cashbackAmount: transaction.cashbackAmount,
     cashbackBalance: clientTotalBalance,
-    companyName: 'MoneyBack'
+    companyName: 'Fidelify'
   });
 }
 ```
@@ -149,7 +149,7 @@ const sendScheduledNotification = async (notification: any) => {
     to: notification.clientEmail,
     clientName: notification.clientName,
     message: notification.message,
-    companyName: 'MoneyBack'
+    companyName: 'Fidelify'
   });
 };
 ```

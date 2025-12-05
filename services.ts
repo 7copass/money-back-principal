@@ -1316,7 +1316,7 @@ export const api = {
                 ? '/evolution-api' 
                 : (import.meta.env.VITE_EVOLUTION_API_URL || 'https://api.leaderaperformance.com.br');
             const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY || '';
-            const prefix = import.meta.env.VITE_WHATSAPP_INSTANCE_PREFIX || 'moneyback';
+            const prefix = import.meta.env.VITE_WHATSAPP_INSTANCE_PREFIX || 'fidelify';
             
             // DEBUG: Log para verificar se as variáveis estão carregadas
             console.log('[Evolution Config] Variables loaded:', {
@@ -1327,7 +1327,7 @@ export const api = {
                 keyLength: apiKey?.length || 0
             });
             
-            // Se tiver companyId, usa moneyback-{id}, senão usa moneyback-default
+            // Se tiver companyId, usa fidelify-{id}, senão usa fidelify-default
             const instanceName = companyId ? `${prefix}-${companyId}` : `${prefix}-default`;
 
             // Validação: Se não tiver API Key, lança erro claro

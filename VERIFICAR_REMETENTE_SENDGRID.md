@@ -9,7 +9,7 @@ The from address does not match a verified Sender Identity.
 Mail cannot be sent until this error is resolved.
 ```
 
-**Tradução**: O endereço de remetente (`noreply@7copass.com`) não está verificado no SendGrid.
+**Tradução**: O endereço de remetente (`noreply@fidelify.com.br`) não está verificado no SendGrid.
 
 ## ✅ Como Resolver (Passo a Passo)
 
@@ -22,9 +22,9 @@ Mail cannot be sent until this error is resolved.
 
 3. **Preencha o formulário:**
    ```
-   From Name: MoneyBack
-   From Email Address: noreply@7copass.com
-   Reply To: contato@7copass.com (ou outro email válido)
+   From Name: Fidelify
+   From Email Address: noreply@fidelify.com.br
+   Reply To: contato@fidelify.com.br (ou outro email válido)
    Company Address: [endereço da empresa]
    City: [cidade]
    State/Province: [estado]
@@ -35,10 +35,10 @@ Mail cannot be sent until this error is resolved.
 4. **Clique em "Create"**
 
 5. **Verifique seu email:**
-   - SendGrid enviará um email para `noreply@7copass.com`
+   - SendGrid enviará um email para `noreply@fidelify.com.br`
    - Você precisa acessar esse email e clicar no link de verificação
    
-   ⚠️ **IMPORTANTE**: Você precisa ter acesso à caixa de entrada `noreply@7copass.com` para completar a verificação!
+   ⚠️ **IMPORTANTE**: Você precisa ter acesso à caixa de entrada `noreply@fidelify.com.br` para completar a verificação!
 
 6. **Após verificar**, rode novamente o teste:
    ```bash
@@ -49,7 +49,7 @@ Mail cannot be sent until this error is resolved.
 
 ### Opção 2: Usar Email Pessoal Temporariamente (Para Teste)
 
-Se você não tem acesso ao email `noreply@7copass.com`, pode testar com seu email pessoal:
+Se você não tem acesso ao email `noreply@fidelify.com.br`, pode testar com seu email pessoal:
 
 1. **Edite o arquivo `.env.local`:**
    ```bash
@@ -77,7 +77,7 @@ Se você não tem acesso ao email `noreply@7copass.com`, pode testar com seu ema
 
 ### Opção 3: Verificar Domínio Completo (Mais Profissional)
 
-**Requer acesso ao DNS do domínio `7copass.com`**
+**Requer acesso ao DNS do domínio `fidelify.com.br`**
 
 1. **Acesse:**
    - URL: https://app.sendgrid.com/settings/sender_auth
@@ -91,7 +91,7 @@ Se você não tem acesso ao email `noreply@7copass.com`, pode testar com seu ema
 
 4. **Aguarde propagação do DNS** (pode levar até 48h)
 
-5. **Após verificado, todos os emails do domínio `@7copass.com` funcionarão**
+5. **Após verificado, todos os emails do domínio `@fidelify.com.br` funcionarão**
 
 ---
 

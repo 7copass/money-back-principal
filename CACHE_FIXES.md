@@ -167,4 +167,4 @@ Em desenvolvimento, você verá logs detalhados como:
 
 ---
 
-**Desenvolvido para resolver problemas de cache no Moneyback Platform** 🚀
+**Desenvolvido para resolver problemas de cache no Fidelify Platform** 🚀

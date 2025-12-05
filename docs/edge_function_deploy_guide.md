@@ -37,7 +37,7 @@ Isso vai abrir seu navegador para autenticar. Confirme o login.
 ## 🔗 Passo 3: Linkar com seu Projeto
 
 ```bash
-cd /Users/victorhugosantanaalmeida/Downloads/moneyback---cashback-platform
+cd /Users/victorhugosantanaalmeida/Downloads/fidelify---cashback-platform
 
 supabase link --project-ref SEU_PROJECT_REF
 ```

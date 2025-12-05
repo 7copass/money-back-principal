@@ -29,7 +29,7 @@ Agora, vamos criar as contas que permitirão o login.
 3.  Crie os seguintes quatro usuários, um de cada vez. Use **exatamente** estas credenciais:
 
     *   **Usuário 1 (Gestor):**
-        *   **Email:** `manager@moneyback.com`
+        *   **Email:** `manager@fidelify.com`
         *   **Password:** `senha_segura_manager`
         *   Clique em "Create user".
 
@@ -75,11 +75,11 @@ Criar o usuário na Autenticação não é suficiente. Precisamos criar o "perfi
 2.  Clique em **"+ Insert row"** para cada um dos usuários abaixo. Você precisará do **UID** de cada usuário da aba **Authentication -> Users**. É uma boa ideia ter duas abas do navegador abertas.
 
     *   **Perfil 1: Manager**
-        *   Copie o `UID` do usuário `manager@moneyback.com`.
+        *   Copie o `UID` do usuário `manager@fidelify.com`.
         *   Na tabela `profiles`, clique em "Insert row":
         *   **id:** cole o `UID` aqui.
         *   **name:** `Manager de Teste`
-        *   **email:** `manager@moneyback.com`
+        *   **email:** `manager@fidelify.com`
         *   **role:** `MANAGER`
         *   Deixe o `company_id` em branco (NULL).
         *   Clique em **Save**.

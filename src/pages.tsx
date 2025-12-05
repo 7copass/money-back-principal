@@ -34,7 +34,7 @@ export const LoginPage: React.FC = () => {
             <div className="max-w-md w-full p-6 sm:p-8 bg-white rounded-2xl shadow-xl">
                 <div className="flex items-center justify-center text-brand-primary mb-8">
                     <Icons.Logo />
-                    <h1 className="text-3xl font-bold ml-2">Moneyback</h1>
+                    <h1 className="text-3xl font-bold ml-2">Fideli<span className="text-brand-darkest">fy</span></h1>
                 </div>
                 <h2 className="text-2xl font-semibold text-center text-brand-darkest mb-6">Acesse sua conta</h2>
                 <form onSubmit={handleLogin}>
@@ -1411,7 +1411,7 @@ export const UsersPage: React.FC<{ user: User }> = ({ user }) => {
             <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <div>
                     <h1 className="text-2xl font-bold text-brand-darkest">Usuários do Sistema</h1>
-                    <p className="text-gray-500">Gerencie quem tem acesso ao Moneyback</p>
+                    <p className="text-gray-500">Gerencie quem tem acesso ao Fidelify</p>
                 </div>
                 <Button onClick={handleAdd} className="inline-flex items-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all">
                     <Icons.PlusCircle className="w-5 h-5 mr-2" />

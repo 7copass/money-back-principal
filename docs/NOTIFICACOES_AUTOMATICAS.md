@@ -584,7 +584,7 @@ supabase functions logs process-notifications --limit 50
 
 **1. Editar código:**
 ```bash
-cd /Users/victorhugosantanaalmeida/Downloads/moneyback---cashback-platform
+cd /Users/victorhugosantanaalmeida/Downloads/fidelify---cashback-platform
 nano supabase/functions/process-notifications/index.ts
 ```
 
@@ -743,7 +743,7 @@ supabase functions deploy process-notifications
 ### Arquivos Principais
 
 ```
-moneyback---cashback-platform/
+fidelify---cashback-platform/
 ├── supabase/
 │   └── functions/
 │       └── process-notifications/

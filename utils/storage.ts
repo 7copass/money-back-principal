@@ -8,7 +8,7 @@ interface StorageData<T> {
     timestamp: number;
 }
 
-const STORAGE_PREFIX = 'moneyback_';
+const STORAGE_PREFIX = 'fidelify_';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 horas
 
 export const storage = {

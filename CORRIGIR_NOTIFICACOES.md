@@ -18,7 +18,7 @@ Você testou as notificações automáticas e elas não estão sendo enviadas. A
 ### ✅ PASSO 1: Acessar o Supabase Dashboard
 
 1. Abra: https://app.supabase.com
-2. Selecione o projeto: **MoneyBack Cashback Platform**
+2. Selecione o projeto: **Fideliffidelify---cashback-platform/**
 3. Project ID: `phznyksqgtanfqcphvod`
 
 ---

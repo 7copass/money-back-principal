@@ -15,7 +15,7 @@ function localStorageCleanupPlugin(): Plugin {
           <script>
             // Limpa cache obsoleto ao carregar em desenvolvimento
             (function() {
-              const lastCleanKey = 'moneyback_last_dev_clean';
+              const lastCleanKey = 'fidelify_last_dev_clean';
               const lastClean = localStorage.getItem(lastCleanKey);
               const now = Date.now();
               const oneHour = 60 * 60 * 1000;
@@ -25,7 +25,7 @@ function localStorageCleanupPlugin(): Plugin {
                 console.log('🧹 Limpando dados expirados do localStorage...');
                 const keys = Object.keys(localStorage);
                 keys.forEach(key => {
-                  if (key.startsWith('moneyback_')) {
+                  if (key.startsWith('fidelify_')) {
                     try {
                       const item = localStorage.getItem(key);
                       if (item) {

@@ -231,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userRole, onNavigate, onLogout
       <aside className={`w-64 bg-white h-screen flex flex-col p-4 shadow-lg fixed top-0 left-0 z-30 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center text-brand-primary mb-10 px-3">
           <Icons.Logo />
-          <h1 className="text-2xl font-bold ml-2">Moneyback</h1>
+          <h1 className="text-2xl font-bold ml-2">Fideli<span className="text-brand-darkest">fy</span></h1>
         </div>
         <nav className="flex-grow">
           <ul>

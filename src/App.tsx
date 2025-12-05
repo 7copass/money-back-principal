@@ -95,7 +95,7 @@ const AppContent: React.FC = () => {
                 <div className="mb-6 animate-bounce text-brand-primary">
                      <Icons.Logo width="64" height="64" />
                 </div>
-                <h2 className="text-2xl font-bold text-white mb-2">Moneyback</h2>
+                <h2 className="text-2xl font-bold text-white mb-2">Fidelify</h2>
                 <p className="text-gray-400 text-lg font-medium animate-pulse mb-6">
                     Carregando sistema...
                 </p>
@@ -137,7 +137,7 @@ const DashboardLayout: React.FC<{ user: User; currentPage: string; onNavigate: (
                 case UserRole.USER: return 'Minha Conta';
             }
         }
-        return pageTitles[currentPage] || 'Moneyback';
+        return pageTitles[currentPage] || 'Fidelify';
     }
 
     return (

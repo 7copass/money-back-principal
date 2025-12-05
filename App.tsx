@@ -295,7 +295,7 @@ const DashboardLayout: React.FC<{ user: User; currentPage: string; onNavigate: (
                 case UserRole.USER: return 'Minha Conta';
             }
         }
-        return pageTitles[currentPage] || 'Moneyback';
+        return pageTitles[currentPage] || 'Fidelify';
     }
 
     return (

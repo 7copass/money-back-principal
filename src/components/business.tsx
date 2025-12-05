@@ -170,7 +170,7 @@ export const Sidebar: React.FC<{ userRole: string; onNavigate: (page: string) =>
             <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
                 <div className="p-6 flex items-center justify-center border-b">
                     <Icons.Logo className="text-blue-600" />
-                    <span className="ml-2 text-xl font-bold">Moneyback</span>
+                    <span className="ml-2 text-xl font-bold">Fideli<span className="text-brand-darkest">fy</span></span>
                 </div>
                 <nav className="p-4 space-y-2">
                     {menuItems.filter(item => !item.roles || item.roles.includes(userRole)).map(item => (

@@ -11,7 +11,7 @@ Este guia serve para você validar que a aplicação do script `database_fix.sql
 Este é o teste mais crítico.
 
 *   **Credenciais de Teste:**
-    *   **Email:** `manager@moneyback.com` (ou o email do seu usuário gestor)
+    *   **Email:** `manager@fidelify.com` (ou o email do seu usuário gestor)
     *   **Senha:** `senha_segura_manager`
 
 *   **Passo a Passo:**

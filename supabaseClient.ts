@@ -14,6 +14,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         // Detecta sessão na URL (para magic links, etc)
         detectSessionInUrl: true,
         // Storage key customizado para evitar conflitos
-        storageKey: 'moneyback-auth-token'
+        storageKey: 'fidelify-auth-token',
     }
 });

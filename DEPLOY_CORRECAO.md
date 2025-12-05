@@ -40,7 +40,7 @@ Pronto! A correção está no ar! ✅
 **Abra o terminal** e execute:
 
 ```bash
-cd /Users/victorhugosantanaalmeida/Downloads/moneyback---cashback-platform
+cd /Users/victorhugosantanaalmeida/Downloads/fidelify---cashback-platform
 supabase login
 ```
 

@@ -1,8 +1,8 @@
-# 💰 Moneyback - Plataforma de Cashback e Fidelização
+# 💰 Fidelify - Plataforma de Cashback e Fidelização
 
 Plataforma completa e moderna para gestão de cashback, fidelização de clientes e automação de marketing via WhatsApp. Desenvolvida para maximizar a retenção de clientes e aumentar o LTV (Lifetime Value).
 
-![Moneyback Dashboard](https://placehold.co/1200x600/png?text=Dashboard+Preview)
+![Fidelify Dashboard](https://placehold.co/1200x600/png?text=Dashboard+Preview)
 
 ## 🚀 Funcionalidades Principais
 
@@ -50,8 +50,8 @@ Sistema robusto de notificações automáticas para recuperar clientes antes que
 
 ### 1. Clone e Instale
 ```bash
-git clone https://github.com/seu-usuario/moneyback-platform.git
-cd moneyback-platform
+git clone https://github.com/seu-usuario/fidelify-platform.git
+cd fidelify-platform
 npm install
 ```
 
@@ -136,4 +136,4 @@ select
 
 ---
 
-**Moneyback** © 2025 - Todos os direitos reservados.
+**Fidelify** © 2025 - Todos os direitos reservados.
