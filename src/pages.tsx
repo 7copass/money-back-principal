@@ -504,151 +504,210 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
 };
 
 export const RedeemCashbackPage: React.FC<{ user: User }> = ({ user }) => {
-    const [identifier, setIdentifier] = useState('');
-    const [searchResult, setSearchResult] = useState<{ client: Client, availableCashback: number } | null>(null);
     const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState(false);
     const [error, setError] = useState('');
-    const [redeemSuccess, setRedeemSuccess] = useState(false);
-    const [newPurchaseValue, setNewPurchaseValue] = useState('');
+    
+    // Form States
+    const [identifier, setIdentifier] = useState('');
+    const [purchaseValue, setPurchaseValue] = useState('');
+    const [generateCashback, setGenerateCashback] = useState(false);
+    
+    // Optional Cashback States
+    const [product, setProduct] = useState('');
+    const [cashbackPercentage, setCashbackPercentage] = useState('');
+    const [expirationDate, setExpirationDate] = useState(
+        new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]
+    );
 
-    const handleSearch = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!user.companyId || !identifier) return;
+        if (!user.companyId) return;
+        
         setLoading(true);
         setError('');
-        setSearchResult(null);
-        setRedeemSuccess(false);
+        setSuccess(false);
 
-        const result = await api.findClientByPhoneOrCpf(user.companyId, identifier);
+        try {
+            // 1. Buscar cliente
+            const clientResult = await api.findClientByPhoneOrCpf(user.companyId, identifier);
+            
+            if (!clientResult) {
+                setError('Cliente não encontrado com o CPF ou telefone informado.');
+                setLoading(false);
+                return;
+            }
 
-        if (result) {
-            setSearchResult(result);
-        } else {
-            setError('Cliente não encontrado com o CPF ou telefone informado.');
-        }
-        setLoading(false);
-    };
+            const { client, availableCashback } = clientResult;
+            const pValue = parseFloat(purchaseValue);
 
-    const handleRedeem = async () => {
-        if (!searchResult || !user.companyId || !newPurchaseValue) return;
+            if (availableCashback <= 0) {
+                setError('Este cliente não possui saldo de cashback para resgate.');
+                setLoading(false);
+                return;
+            }
 
-        const purchaseValue = parseFloat(newPurchaseValue);
-        if (isNaN(purchaseValue) || purchaseValue <= 0) {
-            setError('Por favor, insira um valor de compra válido.');
-            return;
-        }
+            if (availableCashback > pValue) {
+                setError(`O valor do cashback (R$ ${availableCashback.toFixed(2)}) não pode ser maior que o valor da compra (R$ ${pValue.toFixed(2)}).`);
+                setLoading(false);
+                return;
+            }
 
-        if (searchResult.availableCashback > purchaseValue) {
-            setError(`O valor do cashback (R$ ${searchResult.availableCashback.toFixed(2)}) não pode ser maior que o valor da nova compra.`);
-            return;
-        }
+            // 2. Realizar Resgate
+            const redeemSuccess = await api.redeemCashback(
+                user.companyId,
+                client.id,
+                user.id,
+                user.name,
+                availableCashback,
+                pValue
+            );
 
-        setLoading(true);
-        setError('');
-        setRedeemSuccess(false);
+            if (!redeemSuccess) {
+                setError('Erro ao processar o resgate. Tente novamente.');
+                setLoading(false);
+                return;
+            }
 
-        const success = await api.redeemCashback(
-            user.companyId,
-            searchResult.client.id,
-            user.id,
-            user.name,
-            searchResult.availableCashback,
-            purchaseValue
-        );
+            // 3. Gerar Novo Cashback (Opcional)
+            if (generateCashback) {
+                const cbPercentage = parseFloat(cashbackPercentage);
+                const cbValue = (pValue * cbPercentage) / 100;
+                const today = new Date().toISOString().split('T')[0];
 
-        if (success) {
-            setRedeemSuccess(true);
-            setSearchResult(null); // Reset form
+                await api.addTransaction(user.companyId, {
+                    clientId: client.id,
+                    customerName: client.name,
+                    customerPhone: client.phone,
+                    customerEmail: client.email,
+                    product: product || 'Venda com Resgate',
+                    purchaseValue: pValue,
+                    cashbackPercentage: cbPercentage,
+                    cashbackValue: cbValue,
+                    purchaseDate: today,
+                    cashbackExpirationDate: expirationDate,
+                    status: 'Disponível',
+                    sellerId: user.id,
+                    sellerName: user.name,
+                });
+            }
+
+            setSuccess(true);
+            // Reset form
             setIdentifier('');
-            setNewPurchaseValue('');
-            setTimeout(() => setRedeemSuccess(false), 5000);
-        } else {
-            setError('Ocorreu um erro ao tentar resgatar o cashback. Tente novamente.');
+            setPurchaseValue('');
+            setGenerateCashback(false);
+            setProduct('');
+            setCashbackPercentage('');
+            setTimeout(() => setSuccess(false), 5000);
+
+        } catch (err) {
+            console.error(err);
+            setError('Ocorreu um erro inesperado. Verifique o console.');
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     return (
         <main className="p-4 sm:p-6 flex justify-center">
             <Card className="w-full max-w-2xl">
-                <h2 className="text-xl font-bold mb-6">Resgatar Cashback do Cliente</h2>
-                {redeemSuccess && (
+                <h2 className="text-xl font-bold mb-6">Resgatar Cashback</h2>
+                
+                {success && (
                     <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert">
-                        <p className="font-bold">Resgate Realizado!</p>
-                        <p>O cashback foi aplicado como desconto com sucesso.</p>
+                        <p className="font-bold">Sucesso!</p>
+                        <p>Resgate realizado {generateCashback ? 'e novo cashback gerado' : ''} com sucesso.</p>
                     </div>
                 )}
+
                 {error && <p className="text-red-500 bg-red-100 p-3 rounded-md mb-4">{error}</p>}
 
-                {!searchResult ? (
-                    <form onSubmit={handleSearch} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label htmlFor="identifier" className="block text-gray-700 mb-1">Buscar por CPF ou Telefone</label>
+                            <label className="block text-gray-700 mb-1" htmlFor="identifier">CPF ou Telefone</label>
                             <Input
                                 id="identifier"
                                 value={identifier}
                                 onChange={e => setIdentifier(e.target.value)}
-                                placeholder="Digite o CPF ou telefone do cliente"
+                                placeholder="Digite para buscar..."
                                 required
                             />
                         </div>
-                        <div className="pt-2">
-                            <Button type="submit" disabled={loading || !identifier} className="w-full">
-                                {loading ? 'Buscando...' : 'Buscar Cliente'}
-                            </Button>
+                        <div>
+                            <label className="block text-gray-700 mb-1" htmlFor="purchaseValue">Valor da Compra (R$)</label>
+                            <Input
+                                id="purchaseValue"
+                                type="number"
+                                step="0.01"
+                                value={purchaseValue}
+                                onChange={e => setPurchaseValue(e.target.value)}
+                                placeholder="0.00"
+                                required
+                            />
                         </div>
-                    </form>
-                ) : (
-                    <div className="space-y-4">
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                            <h3 className="font-bold text-lg">{searchResult.client.name}</h3>
-                            <p className="text-gray-600">CPF: {searchResult.client.cpf}</p>
-                            <p className="text-gray-600">Telefone: {searchResult.client.phone}</p>
-                            <div className="mt-4 text-center bg-green-100 p-3 rounded-md">
-                                <p className="text-sm text-green-800">Saldo de Cashback Disponível</p>
-                                <p className="text-3xl font-bold text-green-800">
-                                    {searchResult.availableCashback.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </p>
-                            </div>
+                    </div>
+
+                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex items-center mb-4">
+                            <input
+                                id="generateCashback"
+                                type="checkbox"
+                                checked={generateCashback}
+                                onChange={e => setGenerateCashback(e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                            />
+                            <label htmlFor="generateCashback" className="ml-2 text-sm font-medium text-gray-900">
+                                Gerar novo cashback para esta compra?
+                            </label>
                         </div>
 
-                        {searchResult.availableCashback > 0 ? (
-                            <div className="space-y-4">
+                        {generateCashback && (
+                            <div className="space-y-4 animate-fade-in">
                                 <div>
-                                    <label htmlFor="newPurchaseValue" className="block text-gray-700 mb-1">Valor da Nova Compra (R$)</label>
+                                    <label className="block text-gray-700 mb-1" htmlFor="product">Produto ou Serviço</label>
                                     <Input
-                                        id="newPurchaseValue"
-                                        type="number"
-                                        step="0.01"
-                                        value={newPurchaseValue}
-                                        onChange={e => setNewPurchaseValue(e.target.value)}
-                                        placeholder="Ex: 150.00"
-                                        required
+                                        id="product"
+                                        value={product}
+                                        onChange={e => setProduct(e.target.value)}
+                                        placeholder="Ex: Serviço de Manutenção"
+                                        required={generateCashback}
                                     />
                                 </div>
-                                <div className="pt-2 flex flex-col sm:flex-row gap-3">
-                                    <Button onClick={() => setSearchResult(null)} className="w-full bg-gray-200 text-gray-800 hover:bg-gray-300">
-                                        Buscar Outro Cliente
-                                    </Button>
-                                    <Button
-                                        onClick={handleRedeem}
-                                        disabled={loading || !newPurchaseValue}
-                                        className="w-full"
-                                    >
-                                        {loading ? 'Processando...' : `Aplicar Desconto de ${searchResult.availableCashback.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
-                                    </Button>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-gray-700 mb-1" htmlFor="cashbackPercentage">% de Cashback</label>
+                                        <Input
+                                            id="cashbackPercentage"
+                                            type="number"
+                                            value={cashbackPercentage}
+                                            onChange={e => setCashbackPercentage(e.target.value)}
+                                            placeholder="10"
+                                            required={generateCashback}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-gray-700 mb-1" htmlFor="expirationDate">Validade</label>
+                                        <Input
+                                            id="expirationDate"
+                                            type="date"
+                                            value={expirationDate}
+                                            onChange={e => setExpirationDate(e.target.value)}
+                                            required={generateCashback}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                        ) : (
-                            <div>
-                                <p className="text-center text-gray-600 p-4">Este cliente não possui saldo de cashback para resgate.</p>
-                                <Button onClick={() => setSearchResult(null)} className="w-full bg-gray-200 text-gray-800 hover:bg-gray-300">
-                                    Buscar Outro Cliente
-                                </Button>
                             </div>
                         )}
                     </div>
-                )}
+
+                    <div className="pt-2">
+                        <Button type="submit" disabled={loading} className="w-full">
+                            {loading ? 'Processando...' : 'Confirmar Resgate'}
+                        </Button>
+                    </div>
+                </form>
             </Card>
         </main>
     );

@@ -1534,6 +1534,91 @@ const ClientQuickRegisterModal: React.FC<{
     );
 };
 
+// Componente de Autocomplete de Produtos
+const ProductAutocomplete: React.FC<{
+    products: Product[];
+    value: string;
+    onChange: (value: string) => void;
+    onSelect?: (product: Product) => void;
+    disabled?: boolean;
+    required?: boolean;
+}> = ({ products, value, onChange, onSelect, disabled, required }) => {
+    const [suggestions, setSuggestions] = useState<Product[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [isCustom, setIsCustom] = useState(false);
+
+    useEffect(() => {
+        if (value && !isCustom) {
+            const filtered = products.filter(p => 
+                p.name.toLowerCase().includes(value.toLowerCase())
+            ).slice(0, 10); // Limit to 10 suggestions
+            setSuggestions(filtered);
+        } else {
+            setSuggestions([]);
+        }
+    }, [value, products, isCustom]);
+
+    const handleSelect = (product: Product) => {
+        onChange(product.name);
+        if (onSelect) onSelect(product);
+        setShowSuggestions(false);
+        setIsCustom(false);
+    };
+
+    const handleCustom = () => {
+        setIsCustom(true);
+        setShowSuggestions(false);
+    };
+
+    return (
+        <div className="relative">
+            <Input
+                value={value}
+                onChange={(e) => {
+                    onChange(e.target.value);
+                    setShowSuggestions(true);
+                    setIsCustom(false);
+                }}
+                onFocus={() => {
+                    if (value) setShowSuggestions(true);
+                }}
+                onBlur={() => {
+                    // Delay hiding to allow click
+                    setTimeout(() => setShowSuggestions(false), 200);
+                }}
+                placeholder="Digite o nome do produto..."
+                disabled={disabled}
+                required={required}
+                autoComplete="off"
+            />
+            
+            {showSuggestions && value && !isCustom && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {suggestions.map((product) => (
+                        <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => handleSelect(product)}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors text-sm"
+                        >
+                            {product.name}
+                        </button>
+                    ))}
+                    {value.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={handleCustom}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-50 text-blue-600 font-semibold text-sm"
+                        >
+                            + Usar "{value}" (Novo)
+                        </button>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
@@ -1863,38 +1948,30 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-gray-600 text-sm mb-1">Nome do Produto/Serviço *</label>
-                                        {products.length > 0 ? (
-                                            <Select
-                                                value={item.name}
-                                                onChange={(e) => updateProductItem(item.id, 'name', e.target.value)}
-                                                disabled={!foundClient}
-                                                required
-                                            >
-                                                <option value="">Selecione...</option>
-                                                {products.map(p => (
-                                                    <option key={p.id} value={p.name}>{p.name}</option>
-                                                ))}
-                                                <option value="__custom__">Outro (digitar)</option>
-                                            </Select>
-                                        ) : (
-                                            <Input
-                                                value={item.name}
-                                                onChange={(e) => updateProductItem(item.id, 'name', e.target.value)}
-                                                placeholder="Nome do produto/serviço"
-                                                disabled={!foundClient}
-                                                required
-                                            />
-                                        )}
-                                        {item.name === '__custom__' && (
-                                            <Input
-                                                className="mt-2"
-                                                placeholder="Digite o nome..."
-                                                value={item.customName}
-                                                onChange={(e) => updateProductItem(item.id, 'customName', e.target.value)}
-                                                disabled={!foundClient}
-                                                required
-                                            />
-                                        )}
+                                        <ProductAutocomplete
+                                            products={products}
+                                            value={item.name === '__custom__' ? item.customName : item.name}
+                                            onChange={(val) => {
+                                                // If value matches a product exactly, use it. Otherwise treat as custom.
+                                                // Actually, ProductAutocomplete handles the display value.
+                                                // We just need to update our state.
+                                                // To keep compatibility with backend which might expect 'productName',
+                                                // we can just set 'name' to the value.
+                                                // But wait, the old logic used 'name' for ID/Name and 'customName' for custom.
+                                                // Let's simplify: just use 'name' for the product name.
+                                                // If it's a custom product, 'name' will be the custom name.
+                                                // We don't need '__custom__' anymore if we just store the string.
+                                                updateProductItem(item.id, 'name', val);
+                                                // Clear customName as we don't need it if we just use name
+                                                updateProductItem(item.id, 'customName', '');
+                                            }}
+                                            onSelect={(product) => {
+                                                // Optional: Pre-fill value if product has price
+                                                // if (product.price) updateProductItem(item.id, 'value', product.price.toString());
+                                            }}
+                                            disabled={!foundClient}
+                                            required
+                                        />
                                     </div>
 
                                     <div>
@@ -1955,151 +2032,434 @@ export const RegisterCashbackPage: React.FC<{ user: User }> = ({ user }) => {
 };
 
 export const RedeemCashbackPage: React.FC<{ user: User }> = ({ user }) => {
-    const [identifier, setIdentifier] = useState('');
-    const [searchResult, setSearchResult] = useState<{ client: Client, availableCashback: number } | null>(null);
+    // Search States (copied from RegisterCashbackPage)
+    const [searchTerm, setSearchTerm] = useState('');
+    const [foundClient, setFoundClient] = useState<Client | null>(null);
+    const [searchPerformed, setSearchPerformed] = useState(false);
+    const [showQuickRegisterModal, setShowQuickRegisterModal] = useState(false);
+    const [searchResults, setSearchResults] = useState<Client[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+
+    // Redemption States
     const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState(false);
     const [error, setError] = useState('');
-    const [redeemSuccess, setRedeemSuccess] = useState(false);
-    const [newPurchaseValue, setNewPurchaseValue] = useState('');
 
-    const handleSearch = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!user.companyId || !identifier) return;
-        setLoading(true);
-        setError('');
-        setSearchResult(null);
-        setRedeemSuccess(false);
+    // Optional Cashback States
+    const [generateCashback, setGenerateCashback] = useState(false);
+    const [cashbackPercentage, setCashbackPercentage] = useState('');
+    const [expirationDate, setExpirationDate] = useState(
+        new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]
+    );
 
-        const result = await api.findClientByPhoneOrCpf(user.companyId, identifier);
+    // Products State (for multiple products)
+    const [products, setProducts] = useState<Product[]>([]);
+    const [productItems, setProductItems] = useState<{ id: number, name: string, value: string, customName: string }[]>([{ id: 1, name: '', value: '', customName: '' }]);
+    const [nextItemId, setNextItemId] = useState(2);
 
-        if (result) {
-            setSearchResult(result);
-        } else {
-            setError('Cliente não encontrado com o CPF ou telefone informado.');
+    // Fetch products on mount
+    useEffect(() => {
+        if (user.companyId) {
+            api.getProducts(user.companyId).then(productsData => {
+                setProducts(productsData.filter(p => p.isActive));
+            });
         }
-        setLoading(false);
+    }, [user.companyId]);
+
+    // Search Effect (copied from RegisterCashbackPage)
+    useEffect(() => {
+        const timer = setTimeout(async () => {
+            if (searchTerm.trim().length >= 2 && user.companyId) {
+                setIsSearching(true);
+                setShowSuggestions(true);
+                try {
+                    const results = await api.searchClients(user.companyId, searchTerm.trim());
+                    setSearchResults(results);
+                } catch (error) {
+                    console.error("Erro ao buscar clientes:", error);
+                    setSearchResults([]);
+                } finally {
+                    setIsSearching(false);
+                }
+            } else {
+                setSearchResults([]);
+                setShowSuggestions(false);
+            }
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm, user.companyId]);
+
+    const handleSelectClient = (client: Client) => {
+        setFoundClient(client);
+        setSearchTerm('');
+        setSearchResults([]);
+        setShowSuggestions(false);
+        setSearchPerformed(true);
     };
 
-    const handleRedeem = async () => {
-        if (!searchResult || !user.companyId || !newPurchaseValue) return;
+    const handleClientRegistered = (client: Client) => {
+        setFoundClient(client);
+        setShowQuickRegisterModal(false);
+        setSearchPerformed(true);
+    };
 
-        const purchaseValue = parseFloat(newPurchaseValue);
-        if (isNaN(purchaseValue) || purchaseValue <= 0) {
-            setError('Por favor, insira um valor de compra válido.');
+    // Product Helper Functions
+    const addProductItem = () => {
+        setProductItems([...productItems, { id: nextItemId, name: '', value: '', customName: '' }]);
+        setNextItemId(nextItemId + 1);
+    };
+
+    const removeProductItem = (id: number) => {
+        if (productItems.length > 1) {
+            setProductItems(productItems.filter(item => item.id !== id));
+        }
+    };
+
+    const updateProductItem = (id: number, field: 'name' | 'value' | 'customName', value: string) => {
+        setProductItems(productItems.map(item =>
+            item.id === id ? { ...item, [field]: value } : item
+        ));
+    };
+
+    const getTotalValue = (): number => {
+        return productItems.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user.companyId || !foundClient) return;
+
+        // Calculate total purchase value from products
+        const pValue = getTotalValue();
+        
+        if (pValue <= 0) {
+            setError('Por favor, insira um valor de compra válido (maior que zero).');
             return;
         }
 
-        if (searchResult.availableCashback > purchaseValue) {
-            setError(`O valor do cashback (R$ ${searchResult.availableCashback.toFixed(2)}) não pode ser maior que o valor da nova compra.`);
+        // Check balance
+        const availableCashback = foundClient.totalCashback || 0;
+        if (availableCashback <= 0) {
+            setError('Este cliente não possui saldo de cashback para resgate.');
+            return;
+        }
+
+        if (availableCashback > pValue) {
+            setError(`O valor do cashback (R$ ${availableCashback.toFixed(2)}) não pode ser maior que o valor da compra (R$ ${pValue.toFixed(2)}).`);
             return;
         }
 
         setLoading(true);
         setError('');
-        setRedeemSuccess(false);
+        setSuccess(false);
 
-        const success = await api.redeemCashback(
-            user.companyId,
-            searchResult.client.id,
-            user.id,
-            user.name,
-            searchResult.availableCashback,
-            purchaseValue
-        );
+        try {
+            // 1. Redeem Cashback
+            const redeemSuccess = await api.redeemCashback(
+                user.companyId,
+                foundClient.id,
+                user.id,
+                user.name,
+                availableCashback,
+                pValue
+            );
 
-        if (success) {
-            setRedeemSuccess(true);
-            setSearchResult(null); // Reset form
-            setIdentifier('');
-            setNewPurchaseValue('');
-            setTimeout(() => setRedeemSuccess(false), 5000);
-        } else {
-            setError('Ocorreu um erro ao tentar resgatar o cashback. Tente novamente.');
+            if (!redeemSuccess) {
+                throw new Error('Falha ao resgatar cashback.');
+            }
+
+            // 2. Generate New Cashback (Optional)
+            if (generateCashback) {
+                const cbPercentage = parseFloat(cashbackPercentage);
+                const cbValue = (pValue * cbPercentage) / 100;
+                const today = new Date().toISOString().split('T')[0];
+
+                // Build products array from productItems
+                const productsData = productItems.map(item => {
+                    const productName = item.name === '__custom__' ? item.customName : item.name;
+                    const itemValue = parseFloat(item.value) || 0;
+                    return {
+                        productName: productName,
+                        quantity: 1,
+                        unitPrice: itemValue,
+                        totalPrice: itemValue
+                    };
+                });
+                
+                const productString = productsData.map(p => p.productName).join(', ');
+
+                await api.addTransaction(user.companyId, {
+                    clientId: foundClient.id,
+                    customerName: foundClient.name,
+                    customerPhone: foundClient.phone,
+                    customerEmail: foundClient.email,
+                    product: productString,
+                    productsDetails: productsData,
+                    purchaseValue: pValue,
+                    cashbackPercentage: cbPercentage,
+                    cashbackValue: cbValue,
+                    purchaseDate: today,
+                    cashbackExpirationDate: expirationDate,
+                    status: 'Disponível',
+                    sellerId: user.id,
+                    sellerName: user.name,
+                });
+            }
+
+            setSuccess(true);
+            setFoundClient(null);
+            setSearchTerm('');
+            setGenerateCashback(false);
+            setCashbackPercentage('');
+            setProductItems([{ id: 1, name: '', value: '', customName: '' }]);
+            setNextItemId(2);
+            setSearchPerformed(false);
+            setTimeout(() => setSuccess(false), 5000);
+
+        } catch (err) {
+            console.error(err);
+            setError('Ocorreu um erro ao processar a solicitação.');
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     return (
         <main className="p-4 sm:p-6 flex justify-center">
             <Card className="w-full max-w-2xl">
-                <h2 className="text-xl font-bold mb-6">Resgatar Cashback do Cliente</h2>
-                {redeemSuccess && (
+                <h2 className="text-xl font-bold mb-6">Resgatar Cashback</h2>
+
+                {success && (
                     <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert">
-                        <p className="font-bold">Resgate Realizado!</p>
-                        <p>O cashback foi aplicado como desconto com sucesso.</p>
+                        <p className="font-bold">Sucesso!</p>
+                        <p>Resgate realizado {generateCashback ? 'e novo cashback gerado' : ''} com sucesso.</p>
                     </div>
                 )}
+
                 {error && <p className="text-red-500 bg-red-100 p-3 rounded-md mb-4">{error}</p>}
 
-                {!searchResult ? (
-                    <form onSubmit={handleSearch} className="space-y-4">
-                        <div>
-                            <label htmlFor="identifier" className="block text-gray-700 mb-1">Buscar por CPF ou Telefone</label>
+                {/* Search Section (Identical to RegisterCashbackPage) */}
+                {!foundClient && (
+                    <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <h3 className="text-lg font-semibold mb-3">1. Buscar Cliente</h3>
+                        <div className="relative">
                             <Input
-                                id="identifier"
-                                value={identifier}
-                                onChange={e => setIdentifier(e.target.value)}
-                                placeholder="Digite o CPF ou telefone do cliente"
-                                required
+                                placeholder="Digite CPF, telefone ou nome do cliente..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onFocus={() => {
+                                    if (searchResults.length > 0) setShowSuggestions(true);
+                                }}
+                                className="w-full"
                             />
+
+                            {isSearching && (
+                                <div className="absolute right-3 top-3 text-gray-400">
+                                    🔄 Buscando...
+                                </div>
+                            )}
+
+                            {showSuggestions && searchResults.length > 0 && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                    {searchResults.map((client) => (
+                                        <button
+                                            key={client.id}
+                                            type="button"
+                                            onClick={() => handleSelectClient(client)}
+                                            className="w-full text-left px-4 py-3 hover:bg-blue-50 border-b last:border-b-0 transition-colors"
+                                        >
+                                            <div className="font-semibold text-gray-900">{client.name}</div>
+                                            <div className="text-sm text-gray-600">
+                                                CPF: {client.cpf} | Telefone: {client.phone}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {showSuggestions && searchTerm.length >= 2 && searchResults.length === 0 && !isSearching && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg p-4">
+                                    <p className="text-yellow-800 mb-2">Nenhum cliente encontrado.</p>
+                                    <Button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowQuickRegisterModal(true);
+                                            setShowSuggestions(false);
+                                        }}
+                                        className="bg-blue-600 hover:bg-blue-700"
+                                    >
+                                        + Cadastrar Novo Cliente
+                                    </Button>
+                                </div>
+                            )}
                         </div>
-                        <div className="pt-2">
-                            <Button type="submit" disabled={loading || !identifier} className="w-full">
-                                {loading ? 'Buscando...' : 'Buscar Cliente'}
-                            </Button>
-                        </div>
-                    </form>
-                ) : (
-                    <div className="space-y-4">
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                            <h3 className="font-bold text-lg">{searchResult.client.name}</h3>
-                            <p className="text-gray-600">CPF: {searchResult.client.cpf}</p>
-                            <p className="text-gray-600">Telefone: {searchResult.client.phone}</p>
-                            <div className="mt-4 text-center bg-green-100 p-3 rounded-md">
-                                <p className="text-sm text-green-800">Saldo de Cashback Disponível</p>
-                                <p className="text-3xl font-bold text-green-800">
-                                    {searchResult.availableCashback.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </div>
+                )}
+
+                {/* Found Client & Redemption Form */}
+                {foundClient && (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* Client Info Card */}
+                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 relative">
+                            <button 
+                                onClick={() => setFoundClient(null)}
+                                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+                                title="Trocar cliente"
+                            >
+                                ✕
+                            </button>
+                            <h3 className="font-bold text-lg text-blue-900">{foundClient.name}</h3>
+                            <p className="text-blue-800 text-sm">CPF: {foundClient.cpf} | Tel: {foundClient.phone}</p>
+                            
+                            <div className="mt-4 bg-white p-3 rounded border border-blue-100 text-center">
+                                <p className="text-sm text-gray-500">Saldo Disponível para Resgate</p>
+                                <p className="text-3xl font-bold text-green-600">
+                                    {(foundClient.totalCashback || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                 </p>
                             </div>
                         </div>
 
-                        {searchResult.availableCashback > 0 ? (
-                            <div className="space-y-4">
-                                <div>
-                                    <label htmlFor="newPurchaseValue" className="block text-gray-700 mb-1">Valor da Nova Compra (R$)</label>
-                                    <Input
-                                        id="newPurchaseValue"
-                                        type="number"
-                                        step="0.01"
-                                        value={newPurchaseValue}
-                                        onChange={e => setNewPurchaseValue(e.target.value)}
-                                        placeholder="Ex: 150.00"
-                                        required
-                                    />
+                        {(foundClient.totalCashback || 0) > 0 ? (
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                
+                                {/* Products Section - ALWAYS VISIBLE NOW to determine purchase value */}
+                                <div className="mb-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-lg font-bold text-gray-800">Produtos/Serviços</h3>
+                                        <Button
+                                            type="button"
+                                            onClick={addProductItem}
+                                            className="bg-green-600 hover:bg-green-700 text-white text-sm py-1 px-3"
+                                        >
+                                            + Adicionar Produto
+                                        </Button>
+                                    </div>
+
+                                    <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                                        {productItems.map((item, index) => (
+                                            <div key={item.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-sm font-semibold text-gray-700">Produto {index + 1}</span>
+                                                    {productItems.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeProductItem(item.id)}
+                                                            className="text-red-600 hover:text-red-800 text-sm"
+                                                        >
+                                                            <Icons.Trash className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label className="block text-gray-600 text-sm mb-1">Nome do Produto/Serviço *</label>
+                                                        <ProductAutocomplete
+                                                            products={products}
+                                                            value={item.name === '__custom__' ? item.customName : item.name}
+                                                            onChange={(val) => {
+                                                                updateProductItem(item.id, 'name', val);
+                                                                updateProductItem(item.id, 'customName', '');
+                                                            }}
+                                                            required
+                                                        />
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="block text-gray-600 text-sm mb-1">Valor (R$) *</label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.01"
+                                                            value={item.value}
+                                                            onChange={(e) => updateProductItem(item.id, 'value', e.target.value)}
+                                                            placeholder="0.00"
+                                                            required
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Total Display */}
+                                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded flex justify-between items-center">
+                                        <span className="font-semibold text-blue-900">Valor Total da Compra:</span>
+                                        <span className="text-2xl font-bold text-blue-700">R$ {getTotalValue().toFixed(2)}</span>
+                                    </div>
                                 </div>
-                                <div className="pt-2 flex flex-col sm:flex-row gap-3">
-                                    <Button onClick={() => setSearchResult(null)} className="w-full bg-gray-200 text-gray-800 hover:bg-gray-300">
-                                        Buscar Outro Cliente
-                                    </Button>
-                                    <Button
-                                        onClick={handleRedeem}
-                                        disabled={loading || !newPurchaseValue}
-                                        className="w-full"
-                                    >
-                                        {loading ? 'Processando...' : `Aplicar Desconto de ${searchResult.availableCashback.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+
+                                {/* Optional Cashback Generation */}
+                                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div className="flex items-center mb-4">
+                                        <input
+                                            id="generateCashback"
+                                            type="checkbox"
+                                            checked={generateCashback}
+                                            onChange={e => setGenerateCashback(e.target.checked)}
+                                            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                        />
+                                        <label htmlFor="generateCashback" className="ml-2 text-sm font-medium text-gray-900 cursor-pointer">
+                                            Gerar novo cashback para esta compra?
+                                        </label>
+                                    </div>
+
+                                    {generateCashback && (
+                                        <div className="space-y-4 animate-fade-in pl-6 border-l-2 border-gray-200">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-gray-700 mb-1" htmlFor="cashbackPercentage">% de Cashback</label>
+                                                    <Input
+                                                        id="cashbackPercentage"
+                                                        type="number"
+                                                        value={cashbackPercentage}
+                                                        onChange={e => setCashbackPercentage(e.target.value)}
+                                                        placeholder="10"
+                                                        required={generateCashback}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-gray-700 mb-1" htmlFor="expirationDate">Validade</label>
+                                                    <Input
+                                                        id="expirationDate"
+                                                        type="date"
+                                                        value={expirationDate}
+                                                        onChange={e => setExpirationDate(e.target.value)}
+                                                        required={generateCashback}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="pt-2">
+                                    <Button type="submit" disabled={loading} className="w-full text-lg py-3">
+                                        {loading ? 'Processando...' : 'Confirmar Resgate'}
                                     </Button>
                                 </div>
-                            </div>
+                            </form>
                         ) : (
-                            <div>
-                                <p className="text-center text-gray-600 p-4">Este cliente não possui saldo de cashback para resgate.</p>
-                                <Button onClick={() => setSearchResult(null)} className="w-full bg-gray-200 text-gray-800 hover:bg-gray-300">
+                            <div className="text-center p-6 bg-gray-50 rounded-lg">
+                                <p className="text-gray-600 mb-4">Este cliente não possui saldo suficiente para realizar um resgate.</p>
+                                <Button 
+                                    onClick={() => setFoundClient(null)} 
+                                    className="bg-gray-200 text-gray-800 hover:bg-gray-300"
+                                >
                                     Buscar Outro Cliente
                                 </Button>
                             </div>
                         )}
                     </div>
                 )}
+
+                <ClientQuickRegisterModal
+                    isOpen={showQuickRegisterModal}
+                    onClose={() => setShowQuickRegisterModal(false)}
+                    onClientRegistered={handleClientRegistered}
+                    companyId={user.companyId}
+                    prefilledCpf={searchTerm}
+                />
             </Card>
         </main>
     );
